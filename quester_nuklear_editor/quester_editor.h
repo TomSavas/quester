@@ -2,7 +2,62 @@ static const char quester_editor[] = "Quester mission editor";
 int width = 1200, height = 800;
 float camera_x = 0, camera_y = 0;
 
-static inline void quester_ed_draw_grid(struct nk_command_buffer *canvas, struct nk_rect *size)
+void quester_ed_draw_contextual_menu(struct nk_context *ctx, struct quester_context **q_ctx)
+{
+    const struct nk_input *in = &ctx->input;
+
+    if (nk_contextual_begin(ctx, 0, nk_vec2(100, 220), nk_window_get_bounds(ctx))) {
+        nk_layout_row_dynamic(ctx, 25, 1);
+        for (int i = 0; i < QUESTER_NODE_TYPE_COUNT; i++) 
+        {
+            if (nk_contextual_item_label(ctx, quester_node_implementations[i].name, NK_TEXT_LEFT))
+            {
+                union quester_node *node = quester_add_node(*q_ctx);
+                node->node.type = i;
+                strcpy(node->node.mission_id, "MIS_01");
+                strcpy(node->node.name, "New ");
+                strcat(node->node.name, quester_node_implementations[i].name);
+
+                node->editor_node.bounds.w = 150;
+                node->editor_node.bounds.h = 100;
+
+                node->editor_node.bounds.x = in->mouse.pos.x + camera_x;
+                node->editor_node.bounds.y = in->mouse.pos.y + camera_y - node->editor_node.bounds.h / 2;
+            }
+        }
+        nk_contextual_end(ctx);
+    }
+}
+
+void quester_ed_draw_menu(struct nk_context *ctx, struct quester_context **q_ctx)
+{
+    nk_menubar_begin(ctx);
+    nk_layout_row_begin(ctx, NK_STATIC, 25, 1);
+    nk_layout_row_push(ctx, 45);
+    if (nk_menu_begin_label(ctx, "File", NK_TEXT_LEFT, nk_vec2(120, 200)))
+    {
+        nk_layout_row_dynamic(ctx, 25, 1);
+        if (nk_menu_item_label(ctx, "Save", NK_TEXT_LEFT))
+        {
+            struct quester_context *shrunken_ctx = quester_shrink(*q_ctx, false);
+            quester_dump_bin(shrunken_ctx, "./quester_state.bin");
+            quester_free(shrunken_ctx);
+        }
+        if (nk_menu_item_label(ctx, "Load", NK_TEXT_LEFT))
+        {
+            quester_free(*q_ctx);
+            *q_ctx = quester_load_bin("./quester_state.bin");
+        }
+        if (nk_menu_item_label(ctx, (*q_ctx)->execution_paused ? "Unpause" : "Pause", NK_TEXT_LEFT))
+        {
+            (*q_ctx)->execution_paused = !(*q_ctx)->execution_paused;
+        }
+
+        nk_menu_end(ctx);
+    }
+}
+
+void quester_ed_draw_grid(struct nk_command_buffer *canvas, struct nk_rect *size)
 {
     static const float grid_size = 32.0f;
     const struct nk_color grid_color = nk_rgb(50, 50, 50);
@@ -22,31 +77,12 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
 
     if (nk_begin(ctx, quester_editor, nk_rect(0, 0, width, height), NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_TITLE))
     {
+        quester_ed_draw_menu(ctx, q_ctx);
+
         struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
         struct nk_rect total_space = nk_window_get_content_region(ctx);
 
-        nk_menubar_begin(ctx);
-        nk_layout_row_begin(ctx, NK_STATIC, 25, 1);
-        nk_layout_row_push(ctx, 45);
-        if (nk_menu_begin_label(ctx, "File", NK_TEXT_LEFT, nk_vec2(120, 200)))
-        {
-            nk_layout_row_dynamic(ctx, 25, 1);
-            if (nk_menu_item_label(ctx, "Save", NK_TEXT_LEFT))
-            {
-                struct quester_context *shrunken_ctx = quester_shrink(*q_ctx, false);
-                quester_dump_bin(shrunken_ctx, "./quester_state.bin");
-                quester_free(shrunken_ctx);
-            }
-            if (nk_menu_item_label(ctx, "Load", NK_TEXT_LEFT))
-            {
-                quester_free(*q_ctx);
-                *q_ctx = quester_load_bin("./quester_state.bin");
-            }
-
-            nk_menu_end(ctx);
-        }
-
-        nk_layout_space_begin(ctx, NK_STATIC, total_space.h, 100);
+        nk_layout_space_begin(ctx, NK_STATIC, total_space.h, INT_MAX);
         {
             struct nk_rect size = nk_layout_space_bounds(ctx);
 
@@ -57,10 +93,10 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 struct node *q_node = &(*q_ctx)->all_nodes[i];
                 union quester_node *qq_node = &(*q_ctx)->all_nodes[i];
 
-                float x = qq_node->editor_node.x - camera_x;
-                float y = qq_node->editor_node.y - camera_y;
-                float w = 150;
-                float h = 100;
+                float x = qq_node->editor_node.bounds.x - camera_x;
+                float y = qq_node->editor_node.bounds.y - camera_y;
+                float w = qq_node->editor_node.bounds.w;
+                float h = qq_node->editor_node.bounds.h;
 
                 if (x+w < 0 || y+h < 0 || x > size.w || y > size.h)
                     continue;
@@ -72,26 +108,38 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                         is_tracked = true;
                         break;
                     }
+                struct nk_panel *panel;
 
                 nk_layout_space_push(ctx, nk_rect(x, y, w, h));
-
                 if (nk_group_begin(ctx, q_node->mission_id, NK_WINDOW_MOVABLE |
-                            NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER | NK_WINDOW_TITLE))
+                            NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE))
                 {
+                    panel = nk_window_get_panel(ctx);
+
                     nk_layout_row_dynamic(ctx, 25, 1);
                     if (is_tracked)
                         nk_label_colored(ctx, q_node->name, NK_TEXT_LEFT, nk_rgba(255, 0, 0, 255));
                     else
                         nk_label(ctx, q_node->name, NK_TEXT_LEFT);
+
                     nk_group_end(ctx);
                 }
+
+                struct nk_rect bounds = nk_layout_space_rect_to_local(ctx, panel->bounds);
+                bounds.x += camera_x;
+                bounds.y += camera_y;
+                // Why the fuck do I need this?
+                bounds.h += 10;
+                qq_node->editor_node.bounds = bounds;
             }
+
+            quester_ed_draw_contextual_menu(ctx, q_ctx);
         }
         nk_layout_space_end(ctx);
 
         // panning
         if (nk_input_is_mouse_hovering_rect(in, nk_window_get_bounds(ctx)) &&
-            nk_input_is_mouse_down(in, NK_BUTTON_LEFT)) {
+            nk_input_is_mouse_down(in, NK_BUTTON_RIGHT)) {
             camera_x -= in->mouse.delta.x;
             camera_y -= in->mouse.delta.y;
         }
