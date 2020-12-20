@@ -33,21 +33,57 @@ void quester_ed_draw_menu(struct nk_context *ctx, struct quester_context **q_ctx
 {
     nk_menubar_begin(ctx);
     nk_layout_row_begin(ctx, NK_STATIC, 25, 1);
-    nk_layout_row_push(ctx, 45);
-    if (nk_menu_begin_label(ctx, "File", NK_TEXT_LEFT, nk_vec2(120, 200)))
+    nk_layout_row_push(ctx, 120);
+    if (nk_menu_begin_label(ctx, "File", NK_TEXT_LEFT, nk_vec2(160, 200)))
     {
-        nk_layout_row_dynamic(ctx, 25, 1);
-        if (nk_menu_item_label(ctx, "Save", NK_TEXT_LEFT))
+        //nk_layout_row_dynamic(ctx, 25, 1);
+        //if (nk_menu_item_label(ctx, "Save", NK_TEXT_LEFT))
+        //{
+        //    struct quester_context *shrunken_ctx = quester_shrink(*q_ctx, false);
+        //    quester_dump_bin(shrunken_ctx, "./quester_state.bin");
+        //    quester_free(shrunken_ctx);
+        //}
+        //if (nk_menu_item_label(ctx, "Load", NK_TEXT_LEFT))
+        //{
+        //    quester_free(*q_ctx);
+        //    *q_ctx = quester_load_bin("./quester_state.bin");
+        //}
+
+        static enum nk_collapse_states static_menu_state = NK_MAXIMIZED;
+        if (nk_tree_state_push(ctx, NK_TREE_TAB, "Static State", &static_menu_state))
         {
-            struct quester_context *shrunken_ctx = quester_shrink(*q_ctx, false);
-            quester_dump_bin(shrunken_ctx, "./quester_state.bin");
-            quester_free(shrunken_ctx);
+            if (nk_menu_item_label(ctx, "Save", NK_TEXT_CENTERED))
+            {
+                quester_dump_static_bin(*q_ctx, "./", "save");
+            }
+            if (nk_menu_item_label(ctx, "Load", NK_TEXT_CENTERED))
+            {
+                quester_load_static_bin(q_ctx, "./", "save");
+            }
+
+            nk_tree_pop(ctx);
         }
-        if (nk_menu_item_label(ctx, "Load", NK_TEXT_LEFT))
+
+        static enum nk_collapse_states dynamic_menu_state = NK_MAXIMIZED;
+        if (nk_tree_state_push(ctx, NK_TREE_TAB, "Dynamic State", &dynamic_menu_state))
         {
-            quester_free(*q_ctx);
-            *q_ctx = quester_load_bin("./quester_state.bin");
+            if (nk_menu_item_label(ctx, "Save", NK_TEXT_CENTERED))
+            {
+                quester_dump_dynamic_bin(*q_ctx, "./", "save");
+            }
+            if (nk_menu_item_label(ctx, "Load", NK_TEXT_CENTERED))
+            {
+                quester_load_dynamic_bin(q_ctx, "./", "save");
+            }
+
+            if (nk_menu_item_label(ctx, "Reset", NK_TEXT_CENTERED))
+            {
+                quester_reset_dynamic_state(*q_ctx);
+            }
+
+            nk_tree_pop(ctx);
         }
+
         if (nk_menu_item_label(ctx, (*q_ctx)->execution_paused ? "Unpause" : "Pause", NK_TEXT_LEFT))
         {
             (*q_ctx)->execution_paused = !(*q_ctx)->execution_paused;
@@ -88,10 +124,10 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
 
             quester_ed_draw_grid(canvas, &size);
 
-            for (int i = 0; i < (*q_ctx)->node_count; i++)
+            for (int i = 0; i < (*q_ctx)->static_state->node_count; i++)
             {
-                struct node *q_node = &(*q_ctx)->all_nodes[i];
-                union quester_node *qq_node = &(*q_ctx)->all_nodes[i];
+                struct node *q_node = &(*q_ctx)->static_state->all_nodes[i];
+                union quester_node *qq_node = &(*q_ctx)->static_state->all_nodes[i];
 
                 float x = qq_node->editor_node.bounds.x - camera_x;
                 float y = qq_node->editor_node.bounds.y - camera_y;
@@ -102,8 +138,8 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                     continue;
 
                 bool is_tracked = false;
-                for (int j = 0; j < (*q_ctx)->tracked_node_count; j++)
-                    if ((*q_ctx)->tracked_node_ids[j] == q_node->id)
+                for (int j = 0; j < (*q_ctx)->dynamic_state->tracked_node_count; j++)
+                    if ((*q_ctx)->dynamic_state->tracked_node_ids[j] == q_node->id)
                     {
                         is_tracked = true;
                         break;
