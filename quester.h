@@ -13,8 +13,6 @@ void quester_load_static_bin(struct quester_context **ctx, const char *dir_path,
 void quester_dump_dynamic_bin(struct quester_context *ctx, const char *dir_path, const char *filename);
 void quester_load_dynamic_bin(struct quester_context **ctx, const char *dir_path, const char *filename);
 
-//void quester_dump_static_bin(struct quester_context *ctx, 
-
 // editing
 union quester_node *quester_add_node(struct quester_context *ctx);
 void quester_add_connection(struct quester_context *ctx, int from_node_id, int to_node_id);
@@ -25,7 +23,7 @@ void quester_reset_dynamic_state(struct quester_context *ctx);
 void quester_run(struct quester_context *ctx);
 
 // Such values have been chosen to enable returning a bool
-// from their tick functions if they don't need "failed" behaviour
+// from user tick functions if they don't need "failed" behaviour
 enum quester_tick_result
 {
     QUESTER_FAILED = -1,
@@ -43,13 +41,14 @@ struct quester_node_implementation
     //void (*on_failure)(void* /*static_node_data*/, void* /*tracking_node_data*/);
 
     void (*nk_display)(struct nk_context* /*nk_ctx*/, struct quester_context* /*ctx*/, int /*id*/, void* /*static_node_data*/, void* /*tracking_node_data*/);
+    void (*nk_prop_edit_display)(struct nk_context* /*nk_ctx*/, struct quester_context* /*ctx*/, int /*id*/, void* /*static_node_data*/, void* /*tracking_node_data*/);
 
     const int static_data_size;
     const int tracking_data_size;
 };
 
 #define QUESTER_IMPLEMENT_NODE(node_type_enum, static_node_data_struct, tracking_node_data_struct, \
-        on_start_func, tick_func, nk_display_func)                                                 \
+        on_start_func, tick_func, nk_display_func, nk_prop_edit_display_func)                      \
                                                                                                    \
     enum quester_tick_result node_type_enum##_tick_typecorrect_wrapper(struct quester_context *ctx,\
             int id, void *static_node_data, void *tracking_node_data)                              \
@@ -58,17 +57,24 @@ struct quester_node_implementation
                 (tracking_node_data_struct*)tracking_node_data);                                   \
     }                                                                                              \
                                                                                                    \
-    void node_type_enum##_on_start_typecorrect_wrapper(struct quester_context *ctx, int id, void *static_node_data,                     \
-            void *tracking_node_data, int started_from_id)                                         \
+    void node_type_enum##_on_start_typecorrect_wrapper(struct quester_context *ctx, int id,        \
+            void *static_node_data, void *tracking_node_data, int started_from_id)                 \
     {                                                                                              \
         on_start_func(ctx, id, (static_node_data_struct*)static_node_data,                         \
                 (tracking_node_data_struct*)tracking_node_data, started_from_id);                  \
     }                                                                                              \
                                                                                                    \
-    void node_type_enum##_nk_display_typecorrect_wrapper(struct nk_context *nk_ctx, struct nk_context *ctx, int id,           \
-            void *static_node_data, void *tracking_node_data)                                      \
+    void node_type_enum##_nk_display_typecorrect_wrapper(struct nk_context *nk_ctx,                \
+            struct nk_context *ctx, int id, void *static_node_data, void *tracking_node_data)      \
     {                                                                                              \
-        nk_display_func(nk_ctx, ctx, id, (static_node_data_struct*)static_node_data,                           \
+        nk_display_func(nk_ctx, ctx, id, (static_node_data_struct*)static_node_data,               \
+                (tracking_node_data_struct*)tracking_node_data);                                   \
+    }                                                                                              \
+                                                                                                   \
+    void node_type_enum##_nk_prop_edit_display_typecorrect_wrapper(struct nk_context *nk_ctx,      \
+            struct nk_context *ctx, int id, void *static_node_data, void *tracking_node_data)      \
+    {                                                                                              \
+        nk_prop_edit_display_func(nk_ctx, ctx, id, (static_node_data_struct*)static_node_data,     \
                 (tracking_node_data_struct*)tracking_node_data);                                   \
     }                                                                                              \
                                                                                                    \
@@ -78,12 +84,13 @@ struct quester_node_implementation
 // NOTE: possible to reduce .static_data_size / .tracking_data_size to true compile-time constants?
 #define QUESTER_NODE_IMPLEMENTATION(node_type_enum)                                                \
     {                                                                                              \
-        .name               = #node_type_enum,                                                     \
-        .tick               = node_type_enum##_tick_typecorrect_wrapper,                           \
-        .on_start           = node_type_enum##_on_start_typecorrect_wrapper,                       \
-        .nk_display         = node_type_enum##_nk_display_typecorrect_wrapper,                     \
-        .static_data_size   = static_data_size_##node_type_enum,                                   \
-        .tracking_data_size = tracking_data_size_##node_type_enum                                  \
+        .name                 = #node_type_enum,                                                   \
+        .tick                 = node_type_enum##_tick_typecorrect_wrapper,                         \
+        .on_start             = node_type_enum##_on_start_typecorrect_wrapper,                     \
+        .nk_display           = node_type_enum##_nk_display_typecorrect_wrapper,                   \
+        .nk_prop_edit_display = node_type_enum##_nk_prop_edit_display_typecorrect_wrapper,         \
+        .static_data_size     = static_data_size_##node_type_enum,                                 \
+        .tracking_data_size   = tracking_data_size_##node_type_enum                                \
     }                                                                                              \
 
 #include "temp_tasks.h"
@@ -93,6 +100,7 @@ enum quester_node_type
     // builtin tasks
     QUESTER_BUILTIN_AND_TASK = 0,
     QUESTER_BUILTIN_OR_TASK,
+    QUESTER_BUILTIN_PLACEHOLDER_TASK,
     QUESTER_BUILTIN_ENTRYPOINT_TASK,
 
     // user-defined tasks
@@ -295,7 +303,11 @@ enum quester_tick_result quester_or_task_tick(struct quester_context *ctx, int i
     return QUESTER_COMPLETED;
 }
 
-QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_OR_TASK, struct quester_or_task_data, struct quester_or_task_dynamic_data, quester_or_task_on_start, quester_or_task_tick, quester_or_task_display)
+void quester_or_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id, struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data)
+{
+}
+
+QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_OR_TASK, struct quester_or_task_data, struct quester_or_task_dynamic_data, quester_or_task_on_start, quester_or_task_tick, quester_or_task_display, quester_or_task_prop_edit_display)
 
 struct quester_and_task_dynamic_data
 {
@@ -340,7 +352,62 @@ void quester_and_task_display (struct nk_context *nk_ctx, struct quester_context
 {
 }
 
-QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_AND_TASK, void, struct quester_and_task_dynamic_data, quester_and_task_on_start, quester_and_task_tick, quester_and_task_display)
+void quester_and_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id, void *_, struct quester_and_task_dynamic_data *data)
+{
+}
+
+QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_AND_TASK, void, struct quester_and_task_dynamic_data, quester_and_task_on_start, quester_and_task_tick, quester_and_task_display, quester_and_task_prop_edit_display) 
+
+struct quester_placeholder_static_data
+{
+    char description[8192];
+};
+
+struct quester_placeholder_dynamic_data
+{
+    enum quester_tick_result tick_result;
+};
+
+void quester_placeholder_on_start(struct quester_context *ctx, int id, struct quester_placeholder_static_data *static_data, struct quester_placeholder_dynamic_data *dynamic_data, int started_from_id)
+{
+    dynamic_data->tick_result = QUESTER_RUNNING;
+}
+
+enum quester_tick_result quester_placeholder_tick(struct quester_context *ctx, int id, struct quester_placeholder_static_data *static_data, struct quester_placeholder_dynamic_data *dynamic_data)
+{
+    return dynamic_data->tick_result;
+}
+
+void quester_placeholder_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id, struct quester_placeholder_static_data *static_data, struct quester_placeholder_dynamic_data *dynamic_data)
+{
+    nk_layout_row_dynamic(nk_ctx, 25, 2);
+    if (nk_button_label(nk_ctx, "Manual complete"))
+    {
+        dynamic_data->tick_result = QUESTER_COMPLETED;
+    }
+
+    if (nk_button_label(nk_ctx, "Manual failure"))
+    {
+        dynamic_data->tick_result = QUESTER_FAILED;
+    }
+
+    nk_layout_row_dynamic(nk_ctx, 25, 1);
+    nk_label(nk_ctx, "DESCRIPTION", NK_TEXT_CENTERED);
+    nk_layout_row_dynamic(nk_ctx, 1000, 1);
+    // NOTE: instead of using nk_text_wrap we use this, to enable newlines and stuff
+    nk_edit_string_zero_terminated(nk_ctx, NK_EDIT_BOX | NK_EDIT_READ_ONLY, static_data->description, sizeof(static_data->description), nk_filter_default);
+}
+
+void quester_placeholder_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
+        struct quester_placeholder_static_data *static_data, struct quester_placeholder_dynamic_data *data)
+{
+    nk_layout_row_dynamic(nk_ctx, 100, 1);
+    nk_edit_string_zero_terminated(nk_ctx, NK_EDIT_BOX, static_data->description, sizeof(static_data->description), nk_filter_default);
+}
+
+QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_PLACEHOLDER_TASK, struct quester_placeholder_static_data,
+        struct quester_placeholder_dynamic_data, quester_placeholder_on_start, quester_placeholder_tick,
+        quester_placeholder_display, quester_placeholder_prop_edit_display)
 
 struct quester_node_implementation quester_node_implementations[QUESTER_NODE_TYPE_COUNT] =
 {
@@ -348,7 +415,8 @@ struct quester_node_implementation quester_node_implementations[QUESTER_NODE_TYP
     //{"OR_TASK", NULL, NULL, quester_or_task_display, 0, 0}, //QUESTER_BUILTIN_OR_TASK, not implemented yet
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_AND_TASK),
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_OR_TASK),
-    {"ENTRYPOINT_TASK", quester_empty_tick, quester_empty, quester_empty, 0, 0}, //QUESTER_BUILTIN_OR_TASK, not implemented yet
+    QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_PLACEHOLDER_TASK),
+    {"ENTRYPOINT_TASK", quester_empty_tick, quester_empty, quester_empty, quester_empty, 0, 0}, //QUESTER_BUILTIN_OR_TASK, not implemented yet
     //QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_ENTRYPOINT_TASK),
     QUESTER_NODE_IMPLEMENTATION(TIMER_TASK),
     QUESTER_NODE_IMPLEMENTATION(TEST_TASK)

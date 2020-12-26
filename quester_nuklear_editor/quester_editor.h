@@ -2,11 +2,40 @@ static const char quester_editor[] = "Quester mission editor";
 int width = 1200, height = 800;
 float camera_x = 0, camera_y = 0;
 
+bool quester_ed_draw_task_prop_editor(struct nk_context *ctx, struct quester_context **q_ctx, int node_id)
+{
+    struct node *q_node = &(*q_ctx)->static_state->all_nodes[node_id];
+    union quester_node *qq_node = &(*q_ctx)->static_state->all_nodes[node_id];
+
+    char title[256];
+    strcpy(title, q_node->name);
+    strcat(title, " property editor");
+    bool opened = false;
+    if (nk_begin(ctx, title, nk_rect(0, 0, 300, 400), NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE |
+                            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE | NK_WINDOW_CLOSABLE))
+    {
+        nk_layout_row_dynamic(ctx, 25, 2);
+        nk_label(ctx, "Task Id:", NK_TEXT_LEFT);
+        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, q_node->mission_id, sizeof(q_node->mission_id), nk_filter_default);
+
+        void *static_node_data = (*q_ctx)->static_state->static_node_data + 
+            quester_find_static_data_offset(*q_ctx, q_node->id);
+        void *dynamic_node_data = (*q_ctx)->dynamic_state->tracked_node_data + 
+            quester_find_dynamic_data_offset(*q_ctx, q_node->id);
+        quester_node_implementations[q_node->type].nk_prop_edit_display(ctx, *q_ctx, q_node->id, static_node_data, dynamic_node_data);
+        quester_node_implementations[q_node->type].nk_display(ctx, *q_ctx, q_node->id, static_node_data, dynamic_node_data);
+        opened = true;
+    }
+    nk_end(ctx);
+
+    return opened;
+}
+
 void quester_ed_draw_contextual_menu(struct nk_context *ctx, struct quester_context **q_ctx)
 {
     const struct nk_input *in = &ctx->input;
 
-    if (nk_contextual_begin(ctx, 0, nk_vec2(200, 220), nk_window_get_bounds(ctx))) {
+    if (nk_contextual_begin(ctx, 0, nk_vec2(270, 220), nk_window_get_bounds(ctx))) {
         nk_layout_row_dynamic(ctx, 25, 1);
         for (int i = 0; i < QUESTER_NODE_TYPE_COUNT; i++) 
         {
@@ -19,8 +48,8 @@ void quester_ed_draw_contextual_menu(struct nk_context *ctx, struct quester_cont
                 strcpy(node->node.name, "New ");
                 strcat(node->node.name, quester_node_implementations[i].name);
 
-                node->editor_node.bounds.w = 250;
-                node->editor_node.bounds.h = 120;
+                node->editor_node.bounds.w = 300;
+                node->editor_node.bounds.h = 220;
 
                 node->editor_node.bounds.x = in->mouse.pos.x + camera_x;
                 node->editor_node.bounds.y = in->mouse.pos.y + camera_y - node->editor_node.bounds.h / 2;
@@ -148,7 +177,10 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
     struct nk_command_buffer *canvas;
     const struct nk_input *in = &ctx->input;
 
-    if (nk_begin(ctx, quester_editor, nk_rect(0, 0, width, height), NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_TITLE))
+    int mouse_over_node_id = -1;
+    static int prop_editor_open_for[100];
+    static int prop_editor_open_count = 0;
+    if (nk_begin(ctx, quester_editor, nk_rect(0, 0, width, height), NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_TITLE | NK_WINDOW_BACKGROUND))
     {
         quester_ed_draw_menu(ctx, q_ctx);
 
@@ -188,7 +220,8 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 else
                     nk_style_default(ctx);
 
-                nk_layout_space_push(ctx, nk_rect(x, y, w, h));
+                struct nk_rect node_rect = nk_rect(x, y, w, h);
+                nk_layout_space_push(ctx, node_rect);
 
                 char title[1024];
                 strcpy(title, q_node->mission_id);
@@ -197,7 +230,7 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 strcat(title, ")");
 
                 if (nk_group_begin(ctx, title, NK_WINDOW_MOVABLE |
-                            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE))
+                            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE | NK_WINDOW_SCROLL_AUTO_HIDE))
                 {
                     panel = nk_window_get_panel(ctx);
 
@@ -221,6 +254,9 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 // output on completion circle
                 circle = nk_rect(x + w - 1, y + h * 0.8, 10, 10);
                 nk_fill_circle(canvas, circle, nk_rgb(100, 255, 100));
+
+                if (mouse_over_node_id == -1 && nk_input_is_mouse_hovering_rect(in, nk_layout_space_rect_to_screen(ctx, node_rect)))
+                    mouse_over_node_id = q_node->id;
 
                 static bool is_dragging_connection = false;
                 static float drag_start_x;
@@ -280,16 +316,51 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
             }
             nk_style_default(ctx);
 
-            quester_ed_draw_contextual_menu(ctx, q_ctx);
+            if (mouse_over_node_id == -1)
+                quester_ed_draw_contextual_menu(ctx, q_ctx);
+            else
+            {
+                if (nk_contextual_begin(ctx, 0, nk_vec2(200, 220), nk_window_get_bounds(ctx))) {
+                    nk_layout_row_dynamic(ctx, 25, 1);
+
+                    if (nk_contextual_item_label(ctx, "Properties", NK_TEXT_LEFT))
+                    {
+                        bool exists = false;
+                        for (int i = 0; i < prop_editor_open_count && !exists; i++)
+                            exists |= prop_editor_open_for[i] == mouse_over_node_id;
+
+                        if (!exists)
+                            prop_editor_open_for[prop_editor_open_count++] = mouse_over_node_id;
+                    }
+
+                    if (nk_contextual_item_label(ctx, "Delete", NK_TEXT_LEFT))
+                    {
+                    }
+
+                    nk_contextual_end(ctx);
+                }
+            }
         }
         nk_layout_space_end(ctx);
 
         // panning
-        if (nk_input_is_mouse_hovering_rect(in, nk_window_get_bounds(ctx)) &&
+        if (mouse_over_node_id == -1 && nk_input_is_mouse_hovering_rect(in, nk_window_get_bounds(ctx)) &&
             nk_input_is_mouse_down(in, NK_BUTTON_RIGHT)) {
             camera_x -= in->mouse.delta.x;
             camera_y -= in->mouse.delta.y;
         }
     }
     nk_end(ctx);
+
+    {
+        int retained_prop_editors[100];
+        int retained_prop_count = 0;
+        for (int i = 0; i < prop_editor_open_count; i++)
+        {
+            if (quester_ed_draw_task_prop_editor(ctx, q_ctx, prop_editor_open_for[i]))
+                retained_prop_editors[retained_prop_count++] = prop_editor_open_for[i];
+        }
+        memcpy(prop_editor_open_for, retained_prop_editors, sizeof(int) * 100);
+        prop_editor_open_count = retained_prop_count;
+    }
 }
