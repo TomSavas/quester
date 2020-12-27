@@ -30,8 +30,12 @@
 #define MAX_VERTEX_BUFFER 512 * 1024
 #define MAX_ELEMENT_BUFFER 128 * 1024
 
+#include "temp_tasks.h"
+
+#define QUESTER_IMPLEMENTATION
 #include "quester.h"
 #include "quester_editor.h"
+#undef QUESTER_IMPLEMENTATION
 
 static void error_callback(int e, const char *d)
 {printf("Error %d: %s\n", e, d);}

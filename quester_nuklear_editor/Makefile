@@ -1,4 +1,5 @@
 CFLAGS += -std=c99 -ggdb
+CC = clang
 
 SRC = main.c
 OBJ = $(SRC:.c=.o)
@@ -19,4 +20,4 @@ endif
 
 all:
 	rm -f $(BIN)
-	$(CC) $(SRC) $(CFLAGS) -I../ -o $(BIN) $(LIBS)
+	$(CC) $(SRC) $(CFLAGS) -I../src -o $(BIN) $(LIBS)
