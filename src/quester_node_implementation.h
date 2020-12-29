@@ -2,9 +2,11 @@
 // from user tick functions if they don't need "failed" behaviour
 enum quester_tick_result
 {
-    QUESTER_FAILED = -1,
     QUESTER_RUNNING = 0,
-    QUESTER_COMPLETED = 1
+    QUESTER_COMPLETED,
+    QUESTER_FAILED,
+
+    QUESTER_TICK_RESULT_COUNT
 };
 
 struct quester_context;
@@ -14,6 +16,7 @@ typedef enum quester_tick_result (*quester_tick_func)(struct quester_context* /*
 typedef void (*quester_on_start_func)(struct quester_context* /*ctx*/, int /*id*/,
         void* /*static_node_data*/, void* /*tracking_node_data*/, int /*started_from_id*/);
 
+// TODO: make API independent
 typedef void (*quester_display_func)(struct nk_context* /*nk_ctx*/, struct quester_context* /*ctx*/,
         int /*id*/, void* /*static_node_data*/, void* /*tracking_node_data*/);
 typedef void (*quester_prop_edit_display_func)(struct nk_context* /*nk_ctx*/,

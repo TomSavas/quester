@@ -17,8 +17,10 @@ struct quester_context *quester_init(int capacity)
     ctx->execution_paused = false;
 
     ctx->static_state = (void*)ctx + sizeof(struct quester_context);
-    ctx->static_state->initially_tracked_node_ids = (void*)ctx->static_state + 
+    ctx->static_state->available_ids = (void*)ctx->static_state + 
         sizeof(struct quester_game_definition);
+    ctx->static_state->initially_tracked_node_ids = (void*)ctx->static_state->available_ids + 
+        sizeof(int) * capacity;
     ctx->static_state->all_nodes = (void*)ctx->static_state->initially_tracked_node_ids + 
         sizeof(int) * capacity;
     ctx->static_state->static_node_data = (void*)ctx->static_state->all_nodes + 
@@ -27,6 +29,10 @@ struct quester_context *quester_init(int capacity)
     ctx->static_state->capacity = capacity;
     ctx->static_state->initially_tracked_node_count = 0;
     ctx->static_state->node_count = 0;
+
+    // fill in available_ids
+    for (int i = 0; i < capacity; i++)
+        ctx->static_state->available_ids[i] = capacity - i - 1;
 
     ctx->dynamic_state = (void*)ctx->static_state + static_state_size;
     ctx->dynamic_state->failed_node_ids = (void*)ctx->dynamic_state + 
@@ -103,8 +109,10 @@ void quester_load_static_bin(struct quester_context **ctx, const char *dir_path,
 
     fread((void*)static_state + sizeof(size_t), static_state_size - sizeof(size_t), 1, f);
 
-    static_state->initially_tracked_node_ids = (void*)static_state + 
+    static_state->available_ids = (void*)static_state + 
         sizeof(struct quester_game_definition); 
+    static_state->initially_tracked_node_ids = (void*)static_state->available_ids + 
+        sizeof(int) * static_state->capacity;
     static_state->all_nodes = (void*)static_state->initially_tracked_node_ids + 
         sizeof(int) * static_state->capacity;
     static_state->static_node_data = (void*)static_state->all_nodes + 
@@ -192,9 +200,14 @@ void quester_run(struct quester_context *ctx)
         void *dynamic_node_data = dynamic_state->tracked_node_data + 
             quester_find_dynamic_data_offset(ctx, node_id);
 
-        if (node->type != QUESTER_BUILTIN_ENTRYPOINT_TASK && 
-                quester_node_implementations[node->type].tick(ctx, node_id, static_node_data,
-                    dynamic_node_data) == QUESTER_RUNNING)
+        enum quester_tick_result tick_result = quester_node_implementations[node->type].tick(ctx,
+            node_id, static_node_data, dynamic_node_data);
+
+        // TODO: finish builtin entrypoint implementation
+        if (node->type == QUESTER_BUILTIN_ENTRYPOINT_TASK)
+            tick_result = QUESTER_COMPLETED;
+
+        if (tick_result == QUESTER_RUNNING)
             continue;
 
         // NOTE: for now assume that it's completed and not failed
@@ -202,19 +215,22 @@ void quester_run(struct quester_context *ctx)
 
         dynamic_state->tracked_node_ids[i] = 
             dynamic_state->tracked_node_ids[--dynamic_state->tracked_node_count];
-        for (int j = 0; j < node->out_node_count; j++)
+        for (int j = 0; j < node->out_connection_count; j++)
         {
+            if (node->out_connections[j].type != quester_tick_type_to_out_connection_type[tick_result])
+                continue;
+
             int dup = 0;
             for (int k = 0; k < dynamic_state->tracked_node_count; k++)
             {
-                if (dynamic_state->tracked_node_ids[k] == node->out_node_ids[j])
+                if (dynamic_state->tracked_node_ids[k] == node->out_connections[j].to_id)
                 {
                     dup = 1;
                     break;
                 }
             }
 
-            int newly_tracked_node_id = quester_find_index(ctx, node->out_node_ids[j]);
+            int newly_tracked_node_id = quester_find_index(ctx, node->out_connections[j].to_id);
             struct node *newly_tracked_node = &static_state->all_nodes[newly_tracked_node_id].node;
             // err wrong?
             enum quester_control_flags ctl_flags = dynamic_state->ctl_flags[newly_tracked_node_id];
@@ -224,7 +240,7 @@ void quester_run(struct quester_context *ctx)
 
             if (!dup)
                 dynamic_state->tracked_node_ids[dynamic_state->tracked_node_count++] = 
-                    node->out_node_ids[j];
+                    node->out_connections[j].to_id;
 
             // NOTE: for the time being, call on_start every time, even if it's a dup
             void *newly_tracked_static_node_data = static_state->static_node_data + 

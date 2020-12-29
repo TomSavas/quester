@@ -1,5 +1,41 @@
 struct quester_context;
 
+enum in_connection_type
+{
+    QUESTER_ACTIVATION_INPUT = 0,
+    QUESTER_TEST_INPUT,
+
+    QUESTER_INPUT_TYPE_COUNT
+};
+
+struct in_connection
+{
+    enum in_connection_type type;
+    int from_id;
+};
+
+enum out_connection_type
+{
+    QUESTER_COMPLETION_OUTPUT = 0,
+    QUESTER_FAILURE_OUTPUT,
+
+    QUESTER_OUTPUT_TYPE_COUNT
+};
+
+// NOTE: Should be a mapping to an array maybe?
+const enum out_connection_type quester_tick_type_to_out_connection_type[QUESTER_TICK_RESULT_COUNT] =
+{
+    -1,                         // Running
+    QUESTER_COMPLETION_OUTPUT,  // Completed
+    QUESTER_FAILURE_OUTPUT      // Failed
+};
+
+struct out_connection
+{
+    enum out_connection_type type;
+    int to_id;
+};
+
 struct node 
 {
     int type;
@@ -7,11 +43,11 @@ struct node
 
     char mission_id[32];
     char name[128];
-
-    int in_node_count;
-    int in_node_ids[100];
-    int out_node_count;
-    int out_node_ids[100];
+    
+    int in_connection_count;
+    struct in_connection in_connections[100];
+    int out_connection_count;
+    struct out_connection out_connections[100];
 };
 
 struct editor_node
@@ -27,4 +63,8 @@ union quester_node
 };
 
 union quester_node *quester_add_node(struct quester_context *ctx);
-void quester_add_connection(struct quester_context *ctx, int from_node_id, int to_node_id);
+void quester_remove_node(struct quester_context *ctx, int id);
+
+void quester_add_connection(struct quester_context *ctx, struct out_connection out, struct in_connection in);
+void quester_remove_out_connections_to(struct quester_context *ctx, int connection_owner_id, int to_id);
+void quester_remove_in_connections_from(struct quester_context *ctx, int connection_owner_id, int from_id);

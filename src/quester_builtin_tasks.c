@@ -8,9 +8,9 @@ void quester_or_task_on_start(struct quester_context *ctx, int id,
     switch(static_node_data->behaviour)
     {
         case COMPLETE_INCOMING_INCOMPLETE_TASKS:
-            for (int j = 0; j < node->in_node_count; j++)
+            for (int j = 0; j < node->in_connection_count; j++)
             {
-                int in_id = node->in_node_ids[j];
+                int in_id = node->in_connections[j].from_id;
                 struct node *in_node = 
                     &ctx->static_state->all_nodes[quester_find_index(ctx, in_id)].node;
 
@@ -30,11 +30,11 @@ void quester_or_task_on_start(struct quester_context *ctx, int id,
         case FAIL_INCOMING_INCOMPLETE_TASKS:
         //TODO
         case KILL_INCOMING_INCOMPLETE_TASKS:
-            for (int j = 0; j < node->in_node_count; j++)
+            for (int j = 0; j < node->in_connection_count; j++)
             {
                 // TODO: factor out tracked node removal
 
-                int in_id = node->in_node_ids[j];
+                int in_id = node->in_connections[j].from_id;
                 for (int k = 0; k < ctx->dynamic_state->tracked_node_count; k++)
                     if (ctx->dynamic_state->tracked_node_ids[k] == in_id)
                     {
@@ -63,8 +63,9 @@ void quester_or_task_display (struct nk_context *nk_ctx, struct quester_context 
 
     nk_layout_row_dynamic(nk_ctx, 25, 1);
     nk_label(nk_ctx, "Incoming incomplete task action:", NK_TEXT_LEFT);
-    static_node_data->behaviour = nk_combo(nk_ctx, actions, 4, static_node_data->behaviour, 25,
+    static_node_data->behaviour = nk_combo(nk_ctx, actions, sizeof(actions) / sizeof(char*), static_node_data->behaviour, 25,
             nk_vec2(200, 200));
+
     // To rid of the compile error
     nk_bool only_once = static_node_data->only_once;
     // NOTE: this shit is utterly stupid, the checkbox is inverted
@@ -107,7 +108,7 @@ void quester_and_task_on_start(struct quester_context *ctx, int id, void *_,
         printf("duplicate: %d\n", started_from_id);
     }
     
-    data->all_dependencies_completed = data->completed_dependency_count == node->in_node_count;
+    data->all_dependencies_completed = data->completed_dependency_count == node->in_connection_count;
 }
 
 enum quester_tick_result quester_and_task_tick(struct quester_context *ctx, int id, void *_,

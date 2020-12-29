@@ -9,14 +9,24 @@ bool quester_ed_draw_task_prop_editor(struct nk_context *ctx, struct quester_con
     struct node *q_node = &qq_node->node;
 
     char title[256];
-    strcpy(title, q_node->name);
-    strcat(title, " property editor");
+    sprintf(title, "%s property editor (id=%d)", q_node->name, q_node->id);
     bool opened = false;
     if (nk_begin(ctx, title, nk_rect(0, 0, 300, 400), NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_TITLE |
                 NK_WINDOW_MOVABLE | NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE |
                 NK_WINDOW_CLOSABLE))
     {
+        const char *task_types[QUESTER_NODE_TYPE_COUNT];
+        for (int i = 0; i < QUESTER_NODE_TYPE_COUNT; i++)
+            task_types[i] = quester_node_implementations[i].name;
+    
+        // BUG: segfaults when switching from placeholder to or 
+        // possibly interprets part of the text as a pointer which causes and invalid read
+        // Could possibly clear the node definition once I do tihs, but I'd like to retain
+        // the data in case of a failed switch. Can do that once undo/redo is implemented
         nk_layout_row_dynamic(ctx, 25, 2);
+        nk_label(ctx, "Node type: ", NK_TEXT_LEFT);
+        q_node->type = nk_combo(ctx, task_types, QUESTER_NODE_TYPE_COUNT, q_node->type, 25, nk_vec2(200, 200));
+
         nk_label(ctx, "Task Id:", NK_TEXT_LEFT);
         nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, q_node->mission_id,
                 sizeof(q_node->mission_id), nk_filter_default);
@@ -130,6 +140,8 @@ void quester_ed_draw_menu(struct nk_context *ctx, struct quester_context **q_ctx
 
         nk_menu_end(ctx);
     }
+
+    nk_menubar_end(ctx);
 }
 
 void quester_ed_draw_grid(struct nk_command_buffer *canvas, struct nk_rect *size)
@@ -185,16 +197,17 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
     struct nk_command_buffer *canvas;
     const struct nk_input *in = &ctx->input;
 
+    bool targeted_for_deletion = false;
     int mouse_over_node_id = -1;
     static int prop_editor_open_for[100];
     static int prop_editor_open_count = 0;
     if (nk_begin(ctx, quester_editor, nk_rect(0, 0, width, height), NK_WINDOW_NO_SCROLLBAR |
                 NK_WINDOW_TITLE | NK_WINDOW_BACKGROUND))
     {
-        quester_ed_draw_menu(ctx, q_ctx);
-
         struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
         struct nk_rect total_space = nk_window_get_content_region(ctx);
+
+        quester_ed_draw_menu(ctx, q_ctx);
 
         nk_layout_space_begin(ctx, NK_STATIC, total_space.h, INT_MAX);
         {
@@ -202,8 +215,23 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
 
             quester_ed_draw_grid(canvas, &size);
 
-            for (int i = 0; i < (*q_ctx)->static_state->node_count; i++)
+            // due to our removal logic there could be a single node gap
+            int *available_ids = (*q_ctx)->static_state->available_ids;
+            int removed_node_count = 0;
+            for (int i = 0; i < (*q_ctx)->static_state->node_count + removed_node_count; i++)
             {
+                bool is_removed_node = false;
+                for (int j = 0; j < (*q_ctx)->static_state->capacity - (*q_ctx)->static_state->node_count; j++)
+                    if (i == available_ids[j])
+                    {
+                        is_removed_node = true;
+                        removed_node_count++;
+                        break;
+                    }
+
+                if (is_removed_node)
+                    continue;
+
                 union quester_node *qq_node = &(*q_ctx)->static_state->all_nodes[i];
                 struct node *q_node = &qq_node->node;
 
@@ -233,10 +261,8 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 nk_layout_space_push(ctx, node_rect);
 
                 char title[1024];
-                strcpy(title, q_node->mission_id);
-                strcat(title, " (");
-                strcat(title, quester_node_implementations[q_node->type].name);
-                strcat(title, ")");
+                sprintf(title, "%s %s (id=%d)", q_node->mission_id,
+                    quester_node_implementations[q_node->type].name, q_node->id);
 
                 if (nk_group_begin(ctx, title, NK_WINDOW_MOVABLE | NK_WINDOW_BORDER | 
                             NK_WINDOW_TITLE | NK_WINDOW_SCALABLE | NK_WINDOW_SCROLL_AUTO_HIDE))
@@ -258,17 +284,18 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 nk_fill_circle(canvas, circle, nk_rgb(100, 100, 100));
 
                 // output on failure circle
-                circle = nk_rect(x + w - 1, y + h, 10, 10);
-                nk_fill_circle(canvas, circle, nk_rgb(255, 100, 100));
+                struct nk_rect failure_circle = nk_rect(x + w - 1, y + h, 10, 10);
+                nk_fill_circle(canvas, failure_circle, nk_rgb(255, 100, 100));
 
                 // output on completion circle
-                circle = nk_rect(x + w - 1, y + h * 0.8, 10, 10);
-                nk_fill_circle(canvas, circle, nk_rgb(100, 255, 100));
+                struct nk_rect completion_circle = nk_rect(x + w - 1, y + h * 0.8, 10, 10);
+                nk_fill_circle(canvas, completion_circle, nk_rgb(100, 255, 100));
 
                 if (mouse_over_node_id == -1 && nk_input_is_mouse_hovering_rect(in,
                             nk_layout_space_rect_to_screen(ctx, node_rect)))
                     mouse_over_node_id = q_node->id;
 
+                static enum out_connection_type out_type = -1;
                 static bool is_dragging_connection = false;
                 static float drag_start_x;
                 static float drag_start_y;
@@ -276,8 +303,21 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 // connecting
                 if (!is_dragging_connection)
                 {
-                    if (nk_input_is_mouse_hovering_rect(in, circle) && nk_input_is_mouse_down(in,
-                                NK_BUTTON_LEFT)) {
+                    out_type = -1;
+                    struct nk_rect circle;
+                    if (nk_input_is_mouse_hovering_rect(in, failure_circle))
+                    {
+                        out_type = QUESTER_FAILURE_OUTPUT;
+                        circle = failure_circle;
+                    }
+
+                    if (nk_input_is_mouse_hovering_rect(in, completion_circle))
+                    {
+                        out_type = QUESTER_COMPLETION_OUTPUT;
+                        circle = completion_circle;
+                    }
+
+                    if (out_type != -1 && nk_input_is_mouse_down(in, NK_BUTTON_LEFT)) {
                         is_dragging_connection = true;
                         dragged_from_id = q_node->id;
 
@@ -305,8 +345,10 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                             {
                                 printf("connecting %d with %d\n", dragged_from_id,
                                         (*q_ctx)->static_state->all_nodes[j].node.id);
-                                quester_add_connection(*q_ctx, dragged_from_id,
-                                        (*q_ctx)->static_state->all_nodes[j].node.id);
+
+                                // TODO: fix to work with other types
+                                quester_add_connection(*q_ctx, (struct out_connection) { out_type, (*q_ctx)->static_state->all_nodes[j].node.id},
+                                    (struct in_connection) { QUESTER_ACTIVATION_INPUT, dragged_from_id });
                                 break;
                             }
                         }
@@ -314,12 +356,24 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 }
 
                 // Draw connections
-                for (int j = 0; j < q_node->out_node_count; j++)
+                for (int j = 0; j < q_node->out_connection_count; j++)
                 {
                     union quester_node *target_node = 
-                        &(*q_ctx)->static_state->all_nodes[q_node->out_node_ids[j]];
-                    float output_node_x = x + w + 4;
-                    float output_node_y = y + h * 0.8 + 4;
+                        &(*q_ctx)->static_state->all_nodes[q_node->out_connections[j].to_id];
+
+                    float output_node_x = x;
+                    float output_node_y = y;
+                    if (q_node->out_connections[j].type == QUESTER_FAILURE_OUTPUT)
+                    {
+                        output_node_x = x + w + 4;
+                        output_node_y = y + h + 4;
+                    }
+                    else if (q_node->out_connections[j].type == QUESTER_COMPLETION_OUTPUT)
+                    {
+                        output_node_x = x + w + 4;
+                        output_node_y = y + h * 0.8 + 4;
+                    }
+                    
                     float target_node_x = target_node->editor_node.bounds.x - camera_x + 4;
                     float target_node_y = target_node->editor_node.bounds.y - camera_y + 
                         target_node->editor_node.bounds.h * 0.8 + 4;
@@ -354,9 +408,7 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                             prop_editor_open_for[prop_editor_open_count++] = mouse_over_node_id;
                     }
 
-                    if (nk_contextual_item_label(ctx, "Delete", NK_TEXT_LEFT))
-                    {
-                    }
+                    targeted_for_deletion = nk_contextual_item_label(ctx, "Delete", NK_TEXT_LEFT);
 
                     nk_contextual_end(ctx);
                 }
@@ -379,10 +431,13 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
         int retained_prop_count = 0;
         for (int i = 0; i < prop_editor_open_count; i++)
         {
-            if (quester_ed_draw_task_prop_editor(ctx, q_ctx, prop_editor_open_for[i]))
+            if (!targeted_for_deletion && quester_ed_draw_task_prop_editor(ctx, q_ctx, prop_editor_open_for[i]))
                 retained_prop_editors[retained_prop_count++] = prop_editor_open_for[i];
         }
         memcpy(prop_editor_open_for, retained_prop_editors, sizeof(int) * 100);
         prop_editor_open_count = retained_prop_count;
     }
+
+    if (targeted_for_deletion)
+        quester_remove_node(*q_ctx, mouse_over_node_id);
 }
