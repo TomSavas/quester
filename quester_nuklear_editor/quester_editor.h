@@ -1,20 +1,42 @@
 static const char quester_editor[] = "Quester mission editor";
 int width = 1200, height = 800;
-float camera_x = 0, camera_y = 0;
 
-bool quester_ed_draw_task_prop_editor(struct nk_context *ctx, struct quester_context **q_ctx,
-        int node_id)
+struct quester_editor_context
 {
-    union quester_node *qq_node = &(*q_ctx)->static_state->all_nodes[node_id];
+    struct nk_context *nk_ctx;
+    struct quester_context *q_ctx;
+
+    // -1 represents that all nodes are displayed
+    int currently_displayed_container_node_id;
+    bool only_display_containers;
+
+    int prop_editor_count;
+    int prop_editor_open_for_ids[32];
+
+    int width;
+    int height;
+
+    float camera_x;
+    float camera_y;
+};
+
+bool quester_ed_draw_task_prop_editor(struct quester_editor_context *ctx, int node_id)
+{
+    union quester_node *qq_node = &ctx->q_ctx->static_state->all_nodes[node_id];
     struct node *q_node = &qq_node->node;
+    struct editor_node *e_node = &qq_node->editor_node;
 
     char title[256];
     sprintf(title, "%s property editor (id=%d)", q_node->name, q_node->id);
     bool opened = false;
-    if (nk_begin(ctx, title, nk_rect(0, 0, 300, 400), NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_TITLE |
+    struct nk_panel *panel;
+
+    if (nk_begin(ctx->nk_ctx, title, e_node->prop_rect, NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_TITLE |
                 NK_WINDOW_MOVABLE | NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_SCALABLE |
                 NK_WINDOW_CLOSABLE))
     {
+        panel = nk_window_get_panel(ctx->nk_ctx);
+
         const char *task_types[QUESTER_NODE_TYPE_COUNT];
         for (int i = 0; i < QUESTER_NODE_TYPE_COUNT; i++)
             task_types[i] = quester_node_implementations[i].name;
@@ -23,40 +45,56 @@ bool quester_ed_draw_task_prop_editor(struct nk_context *ctx, struct quester_con
         // possibly interprets part of the text as a pointer which causes and invalid read
         // Could possibly clear the node definition once I do tihs, but I'd like to retain
         // the data in case of a failed switch. Can do that once undo/redo is implemented
-        nk_layout_row_dynamic(ctx, 25, 2);
-        nk_label(ctx, "Node type: ", NK_TEXT_LEFT);
-        q_node->type = nk_combo(ctx, task_types, QUESTER_NODE_TYPE_COUNT, q_node->type, 25, nk_vec2(200, 200));
+        nk_layout_row_dynamic(ctx->nk_ctx, 25, 2);
+        nk_label(ctx->nk_ctx, "Node type: ", NK_TEXT_LEFT);
+        q_node->type = nk_combo(ctx->nk_ctx, task_types, QUESTER_NODE_TYPE_COUNT, q_node->type, 25, nk_vec2(200, 200));
 
-        nk_label(ctx, "Task Id:", NK_TEXT_LEFT);
-        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, q_node->mission_id,
+        nk_label(ctx->nk_ctx, "Task Id:", NK_TEXT_LEFT);
+        nk_edit_string_zero_terminated(ctx->nk_ctx, NK_EDIT_FIELD, q_node->mission_id,
                 sizeof(q_node->mission_id), nk_filter_default);
 
-        void *static_node_data = (*q_ctx)->static_state->static_node_data + 
-            quester_find_static_data_offset(*q_ctx, q_node->id);
-        void *dynamic_node_data = (*q_ctx)->dynamic_state->tracked_node_data + 
-            quester_find_dynamic_data_offset(*q_ctx, q_node->id);
-        quester_node_implementations[q_node->type].nk_prop_edit_display(ctx, *q_ctx, q_node->id,
+        void *static_node_data = ctx->q_ctx->static_state->static_node_data + 
+            quester_find_static_data_offset(ctx->q_ctx, q_node->id);
+        void *dynamic_node_data = ctx->q_ctx->dynamic_state->tracked_node_data + 
+            quester_find_dynamic_data_offset(ctx->q_ctx, q_node->id);
+        quester_node_implementations[q_node->type].nk_prop_edit_display(ctx->nk_ctx, ctx->q_ctx, q_node->id,
                 static_node_data, dynamic_node_data);
-        quester_node_implementations[q_node->type].nk_display(ctx, *q_ctx, q_node->id,
+        quester_node_implementations[q_node->type].nk_display(ctx->nk_ctx, ctx->q_ctx, q_node->id,
                 static_node_data, dynamic_node_data);
         opened = true;
     }
-    nk_end(ctx);
+    nk_end(ctx->nk_ctx);
+
+    if (panel)
+        e_node->prop_rect = panel->bounds;
 
     return opened;
 }
 
-void quester_ed_draw_contextual_menu(struct nk_context *ctx, struct quester_context **q_ctx)
+void quester_ed_draw_contextual_menu(struct quester_editor_context *ctx)
 {
-    const struct nk_input *in = &ctx->input;
+    const struct nk_input *in = &ctx->nk_ctx->input;
 
-    if (nk_contextual_begin(ctx, 0, nk_vec2(270, 220), nk_window_get_bounds(ctx))) {
-        nk_layout_row_dynamic(ctx, 25, 1);
+    if (nk_contextual_begin(ctx->nk_ctx, 0, nk_vec2(270, 300), nk_window_get_bounds(ctx->nk_ctx))) {
+        nk_layout_row_dynamic(ctx->nk_ctx, 25, 1);
         for (int i = 0; i < QUESTER_NODE_TYPE_COUNT; i++) 
         {
-            if (nk_contextual_item_label(ctx, quester_node_implementations[i].name, NK_TEXT_LEFT))
+            if (nk_contextual_item_label(ctx->nk_ctx, quester_node_implementations[i].name, NK_TEXT_LEFT))
             {
-                union quester_node *node = quester_add_node(*q_ctx);
+                union quester_node *node;
+                if (i == QUESTER_BUILTIN_CONTAINER_TASK)
+                    node = quester_add_container_node(ctx->q_ctx);
+                else
+                {
+                    node = quester_add_node(ctx->q_ctx);
+                    if (ctx->currently_displayed_container_node_id != -1)
+                    {
+                        struct quester_container_task_data *container = ctx->q_ctx->static_state->static_node_data + 
+                            quester_find_static_data_offset(ctx->q_ctx, ctx->currently_displayed_container_node_id);
+                        container->contained_nodes[container->contained_node_count++] = node->node.id;
+                    }
+                }
+
                 node->node.type = i;
                 strcpy(node->node.mission_id,
                         node->node.type == QUESTER_BUILTIN_OR_TASK ? "OR" : "MIS_01");
@@ -67,13 +105,15 @@ void quester_ed_draw_contextual_menu(struct nk_context *ctx, struct quester_cont
                 node->editor_node.bounds.w = 300;
                 node->editor_node.bounds.h = 220;
 
-                node->editor_node.bounds.x = in->mouse.pos.x + camera_x;
-                node->editor_node.bounds.y = in->mouse.pos.y + camera_y - 
+                node->editor_node.bounds.x = in->mouse.pos.x + ctx->camera_x;
+                node->editor_node.bounds.y = in->mouse.pos.y + ctx->camera_y - 
                     node->editor_node.bounds.h / 2;
 
+                node->editor_node.prop_rect = nk_rect(0, 0, 300, 400);
+
                 // TEMP: just for testing
-                void *static_node_data = (*q_ctx)->static_state->static_node_data + 
-                    quester_find_static_data_offset(*q_ctx, node->node.id);
+                void *static_node_data = ctx->q_ctx->static_state->static_node_data + 
+                    quester_find_static_data_offset(ctx->q_ctx, node->node.id);
                 if (node->node.type == TIMER_TASK)
                 {
                     struct timer_task *t = static_node_data;
@@ -87,72 +127,87 @@ void quester_ed_draw_contextual_menu(struct nk_context *ctx, struct quester_cont
                 }
             }
         }
-        nk_contextual_end(ctx);
+
+        if (ctx->currently_displayed_container_node_id != -1 && nk_contextual_item_label(ctx->nk_ctx, "Exit container node", NK_TEXT_LEFT))
+            ctx->currently_displayed_container_node_id = -1;
+
+        nk_contextual_end(ctx->nk_ctx);
     }
 }
 
-void quester_ed_draw_menu(struct nk_context *ctx, struct quester_context **q_ctx)
+void quester_ed_draw_menu(struct quester_editor_context *ctx)
 {
-    nk_menubar_begin(ctx);
-    nk_layout_row_begin(ctx, NK_STATIC, 25, 1);
-    nk_layout_row_push(ctx, 120);
-    if (nk_menu_begin_label(ctx, "File", NK_TEXT_LEFT, nk_vec2(160, 200)))
+    nk_menubar_begin(ctx->nk_ctx);
+    nk_layout_row_begin(ctx->nk_ctx, NK_STATIC, 25, 2);
+    nk_layout_row_push(ctx->nk_ctx, 70);
+    if (nk_menu_begin_label(ctx->nk_ctx, "File", NK_TEXT_LEFT, nk_vec2(160, 200)))
     {
         static enum nk_collapse_states static_menu_state = NK_MAXIMIZED;
-        if (nk_tree_state_push(ctx, NK_TREE_TAB, "Static State", &static_menu_state))
+        if (nk_tree_state_push(ctx->nk_ctx, NK_TREE_TAB, "Static State", &static_menu_state))
         {
-            if (nk_menu_item_label(ctx, "Save", NK_TEXT_CENTERED))
+            if (nk_menu_item_label(ctx->nk_ctx, "Save", NK_TEXT_CENTERED))
             {
-                quester_dump_static_bin(*q_ctx, "./", "save");
+                quester_dump_static_bin(ctx->q_ctx, "./", "save");
             }
-            if (nk_menu_item_label(ctx, "Load", NK_TEXT_CENTERED))
+            if (nk_menu_item_label(ctx->nk_ctx, "Load", NK_TEXT_CENTERED))
             {
-                quester_load_static_bin(q_ctx, "./", "save");
+                quester_load_static_bin(&ctx->q_ctx, "./", "save");
             }
 
-            nk_tree_pop(ctx);
+            nk_tree_pop(ctx->nk_ctx);
         }
 
         static enum nk_collapse_states dynamic_menu_state = NK_MAXIMIZED;
-        if (nk_tree_state_push(ctx, NK_TREE_TAB, "Dynamic State", &dynamic_menu_state))
+        if (nk_tree_state_push(ctx->nk_ctx, NK_TREE_TAB, "Dynamic State", &dynamic_menu_state))
         {
-            if (nk_menu_item_label(ctx, "Save", NK_TEXT_CENTERED))
+            if (nk_menu_item_label(ctx->nk_ctx, "Save", NK_TEXT_CENTERED))
             {
-                quester_dump_dynamic_bin(*q_ctx, "./", "save");
+                quester_dump_dynamic_bin(ctx->q_ctx, "./", "save");
             }
-            if (nk_menu_item_label(ctx, "Load", NK_TEXT_CENTERED))
+            if (nk_menu_item_label(ctx->nk_ctx, "Load", NK_TEXT_CENTERED))
             {
-                quester_load_dynamic_bin(q_ctx, "./", "save");
-            }
-
-            if (nk_menu_item_label(ctx, "Reset", NK_TEXT_CENTERED))
-            {
-                quester_reset_dynamic_state(*q_ctx);
+                quester_load_dynamic_bin(&ctx->q_ctx, "./", "save");
             }
 
-            nk_tree_pop(ctx);
+            if (nk_menu_item_label(ctx->nk_ctx, "Reset", NK_TEXT_CENTERED))
+            {
+                quester_reset_dynamic_state(ctx->q_ctx);
+            }
+
+            nk_tree_pop(ctx->nk_ctx);
         }
 
-        if (nk_menu_item_label(ctx, (*q_ctx)->execution_paused ? "Unpause" : "Pause", NK_TEXT_LEFT))
+        if (nk_menu_item_label(ctx->nk_ctx, ctx->q_ctx->execution_paused ? "Unpause" : "Pause", NK_TEXT_LEFT))
         {
-            (*q_ctx)->execution_paused = !(*q_ctx)->execution_paused;
+            ctx->q_ctx->execution_paused = !ctx->q_ctx->execution_paused;
         }
 
-        nk_menu_end(ctx);
+        nk_menu_end(ctx->nk_ctx);
     }
 
-    nk_menubar_end(ctx);
+    if (nk_menu_begin_label(ctx->nk_ctx, "Settings", NK_TEXT_LEFT, nk_vec2(250, 100)))
+    {
+        nk_layout_row_dynamic(ctx->nk_ctx, 25, 1);
+        if (nk_menu_item_symbol_label(ctx->nk_ctx, ctx->only_display_containers ? NK_SYMBOL_RECT_SOLID : NK_SYMBOL_RECT_OUTLINE, "Hide non-quest nodes", NK_TEXT_LEFT))
+        {
+            ctx->only_display_containers = !ctx->only_display_containers;
+        }
+
+        nk_menu_end(ctx->nk_ctx);
+    }
+
+    nk_menubar_end(ctx->nk_ctx);
 }
 
-void quester_ed_draw_grid(struct nk_command_buffer *canvas, struct nk_rect *size)
+void quester_ed_draw_grid(struct nk_command_buffer *canvas, struct nk_rect *size, struct quester_editor_context *ctx)
 {
     static const float grid_size = 32.0f;
     const struct nk_color grid_color = nk_rgb(50, 50, 50);
 
-    for (float x = (float)fmod(size->x - camera_x, grid_size); x < size->w; x += grid_size)
+    for (float x = (float)fmod(size->x - ctx->camera_x, grid_size); x < size->w; x += grid_size)
         nk_stroke_line(canvas, x+size->x, size->y, x+size->x, size->y+size->h, 1.0f, grid_color);
 
-    for (float y = (float)fmod(size->y - camera_y, grid_size); y < size->h; y += grid_size)
+    for (float y = (float)fmod(size->y - ctx->camera_y, grid_size); y < size->h; y += grid_size)
         nk_stroke_line(canvas, size->x, y+size->y, size->x+size->w, y+size->y, 1.0f, grid_color);
 }
 
@@ -191,52 +246,81 @@ void quester_ed_set_active_style(struct nk_context *ctx)
     nk_style_from_table(ctx, table);
 }
 
-void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
+void quester_draw_editor(struct quester_editor_context *ctx)
 {
     struct nk_rect total_space;
     struct nk_command_buffer *canvas;
-    const struct nk_input *in = &ctx->input;
+    const struct nk_input *in = &ctx->nk_ctx->input;
 
     bool targeted_for_deletion = false;
     int mouse_over_node_id = -1;
-    static int prop_editor_open_for[100];
-    static int prop_editor_open_count = 0;
-    if (nk_begin(ctx, quester_editor, nk_rect(0, 0, width, height), NK_WINDOW_NO_SCROLLBAR |
-                NK_WINDOW_TITLE | NK_WINDOW_BACKGROUND))
+    if (nk_begin(ctx->nk_ctx, quester_editor, nk_rect(0, 0, width, height), NK_WINDOW_NO_SCROLLBAR |
+                NK_WINDOW_TITLE | NK_WINDOW_BACKGROUND | NK_WINDOW_CLOSABLE))
     {
-        struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-        struct nk_rect total_space = nk_window_get_content_region(ctx);
+        struct nk_command_buffer *canvas = nk_window_get_canvas(ctx->nk_ctx);
+        struct nk_rect total_space = nk_window_get_content_region(ctx->nk_ctx);
 
-        quester_ed_draw_menu(ctx, q_ctx);
+        quester_ed_draw_menu(ctx);
 
-        nk_layout_space_begin(ctx, NK_STATIC, total_space.h, INT_MAX);
+        nk_layout_space_begin(ctx->nk_ctx, NK_STATIC, total_space.h, INT_MAX);
         {
-            struct nk_rect size = nk_layout_space_bounds(ctx);
+            struct nk_rect size = nk_layout_space_bounds(ctx->nk_ctx);
 
-            quester_ed_draw_grid(canvas, &size);
+            quester_ed_draw_grid(canvas, &size, ctx);
 
-            // due to our removal logic there could be a single node gap
-            int *available_ids = (*q_ctx)->static_state->available_ids;
-            int removed_node_count = 0;
-            for (int i = 0; i < (*q_ctx)->static_state->node_count + removed_node_count; i++)
+            struct node *container_node;
+            struct quester_container_task_data *container_data;
+            int node_count;
+
+            if (ctx->currently_displayed_container_node_id == -1)
             {
-                bool is_removed_node = false;
-                for (int j = 0; j < (*q_ctx)->static_state->capacity - (*q_ctx)->static_state->node_count; j++)
-                    if (i == available_ids[j])
-                    {
-                        is_removed_node = true;
-                        removed_node_count++;
-                        break;
-                    }
+                node_count = ctx->q_ctx->static_state->node_count;
+            }
+            else
+            {
+                container_node = &ctx->q_ctx->static_state->all_nodes[ctx->currently_displayed_container_node_id].node;
+                container_data = ctx->q_ctx->static_state->static_node_data + 
+                    quester_find_static_data_offset(ctx->q_ctx, ctx->currently_displayed_container_node_id);
 
-                if (is_removed_node)
-                    continue;
+                node_count = container_data->contained_node_count;
+            }
 
-                union quester_node *qq_node = &(*q_ctx)->static_state->all_nodes[i];
+
+            for (int i = 0; i < node_count; i++)
+            {
+                int id;
+                if (ctx->currently_displayed_container_node_id == -1)
+                {
+                    bool is_removed_node = false;
+                    for (int j = 0; j < ctx->q_ctx->static_state->capacity - ctx->q_ctx->static_state->node_count; j++)
+                        if (i == ctx->q_ctx->static_state->available_ids[j])
+                        {
+                            is_removed_node = true;
+                            node_count++;
+                            break;
+                        }
+
+                    id = i;
+
+                    bool is_initially_tracked_node = false;
+                    for (int j = 0; j < ctx->q_ctx->static_state->initially_tracked_node_count && !is_initially_tracked_node; j++)
+                        is_initially_tracked_node = id == ctx->q_ctx->static_state->initially_tracked_node_ids[j];
+
+                    if (is_removed_node ||
+                        (ctx->q_ctx->static_state->all_nodes[id].node.type != QUESTER_BUILTIN_CONTAINER_TASK && ctx->only_display_containers && !is_initially_tracked_node))
+                        continue;
+
+                }
+                else
+                {
+                    id = container_data->contained_nodes[i];
+                }
+
+                union quester_node *qq_node = &ctx->q_ctx->static_state->all_nodes[id];
                 struct node *q_node = &qq_node->node;
 
-                float x = qq_node->editor_node.bounds.x - camera_x;
-                float y = qq_node->editor_node.bounds.y - camera_y;
+                float x = qq_node->editor_node.bounds.x - ctx->camera_x;
+                float y = qq_node->editor_node.bounds.y - ctx->camera_y;
                 float w = qq_node->editor_node.bounds.w;
                 float h = qq_node->editor_node.bounds.h;
 
@@ -244,8 +328,8 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                     continue;
 
                 bool is_tracked = false;
-                for (int j = 0; j < (*q_ctx)->dynamic_state->tracked_node_count; j++)
-                    if ((*q_ctx)->dynamic_state->tracked_node_ids[j] == q_node->id)
+                for (int j = 0; j < ctx->q_ctx->dynamic_state->tracked_node_count; j++)
+                    if (ctx->q_ctx->dynamic_state->tracked_node_ids[j] == q_node->id)
                     {
                         is_tracked = true;
                         break;
@@ -253,30 +337,30 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 struct nk_panel *panel;
 
                 if (is_tracked)
-                    quester_ed_set_active_style(ctx);
+                    quester_ed_set_active_style(ctx->nk_ctx);
                 else
-                    nk_style_default(ctx);
+                    nk_style_default(ctx->nk_ctx);
 
                 struct nk_rect node_rect = nk_rect(x, y, w, h);
-                nk_layout_space_push(ctx, node_rect);
+                nk_layout_space_push(ctx->nk_ctx, node_rect);
 
                 char title[1024];
                 sprintf(title, "%s %s (id=%d)", q_node->mission_id,
                     quester_node_implementations[q_node->type].name, q_node->id);
 
-                if (nk_group_begin(ctx, title, NK_WINDOW_MOVABLE | NK_WINDOW_BORDER | 
+                if (nk_group_begin(ctx->nk_ctx, title, NK_WINDOW_MOVABLE | NK_WINDOW_BORDER | 
                             NK_WINDOW_TITLE | NK_WINDOW_SCALABLE | NK_WINDOW_SCROLL_AUTO_HIDE))
                 {
-                    panel = nk_window_get_panel(ctx);
+                    panel = nk_window_get_panel(ctx->nk_ctx);
 
-                    void *static_node_data = (*q_ctx)->static_state->static_node_data + 
-                        quester_find_static_data_offset(*q_ctx, q_node->id);
-                    void *dynamic_node_data = (*q_ctx)->dynamic_state->tracked_node_data + 
-                        quester_find_dynamic_data_offset(*q_ctx, q_node->id);
-                    quester_node_implementations[q_node->type].nk_display(ctx, *q_ctx, q_node->id,
+                    void *static_node_data = ctx->q_ctx->static_state->static_node_data + 
+                        quester_find_static_data_offset(ctx->q_ctx, q_node->id);
+                    void *dynamic_node_data = ctx->q_ctx->dynamic_state->tracked_node_data + 
+                        quester_find_dynamic_data_offset(ctx->q_ctx, q_node->id);
+                    quester_node_implementations[q_node->type].nk_display(ctx->nk_ctx, ctx->q_ctx, q_node->id,
                             static_node_data, dynamic_node_data);
                     
-                    nk_group_end(ctx);
+                    nk_group_end(ctx->nk_ctx);
                 }
 
                 // input circle
@@ -292,7 +376,7 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 nk_fill_circle(canvas, completion_circle, nk_rgb(100, 255, 100));
 
                 if (mouse_over_node_id == -1 && nk_input_is_mouse_hovering_rect(in,
-                            nk_layout_space_rect_to_screen(ctx, node_rect)))
+                            nk_layout_space_rect_to_screen(ctx->nk_ctx, node_rect)))
                     mouse_over_node_id = q_node->id;
 
                 static enum out_connection_type out_type = -1;
@@ -335,19 +419,19 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                     {
                         is_dragging_connection = false;
 
-                        for (int j = 0; j < (*q_ctx)->static_state->node_count; j++) 
+                        for (int j = 0; j < ctx->q_ctx->static_state->node_count; j++) 
                         {
                             struct editor_node *n = 
-                                &(*q_ctx)->static_state->all_nodes[j].editor_node;
-                            struct nk_rect would_be_input_circle = nk_rect(n->bounds.x - camera_x,
-                                    n->bounds.y - camera_y + n->bounds.h  * 0.8, 10, 10);
+                                &ctx->q_ctx->static_state->all_nodes[j].editor_node;
+                            struct nk_rect would_be_input_circle = nk_rect(n->bounds.x - ctx->camera_x,
+                                    n->bounds.y - ctx->camera_y + n->bounds.h  * 0.8, 10, 10);
                             if (nk_input_is_mouse_hovering_rect(in, would_be_input_circle))
                             {
                                 printf("connecting %d with %d\n", dragged_from_id,
-                                        (*q_ctx)->static_state->all_nodes[j].node.id);
+                                        ctx->q_ctx->static_state->all_nodes[j].node.id);
 
                                 // TODO: fix to work with other types
-                                quester_add_connection(*q_ctx, (struct out_connection) { out_type, (*q_ctx)->static_state->all_nodes[j].node.id},
+                                quester_add_connection(ctx->q_ctx, (struct out_connection) { out_type, ctx->q_ctx->static_state->all_nodes[j].node.id},
                                     (struct in_connection) { QUESTER_ACTIVATION_INPUT, dragged_from_id });
                                 break;
                             }
@@ -359,7 +443,7 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                 for (int j = 0; j < q_node->out_connection_count; j++)
                 {
                     union quester_node *target_node = 
-                        &(*q_ctx)->static_state->all_nodes[q_node->out_connections[j].to_id];
+                        &ctx->q_ctx->static_state->all_nodes[q_node->out_connections[j].to_id];
 
                     float output_node_x = x;
                     float output_node_y = y;
@@ -374,8 +458,8 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                         output_node_y = y + h * 0.8 + 4;
                     }
                     
-                    float target_node_x = target_node->editor_node.bounds.x - camera_x + 4;
-                    float target_node_y = target_node->editor_node.bounds.y - camera_y + 
+                    float target_node_x = target_node->editor_node.bounds.x - ctx->camera_x + 4;
+                    float target_node_y = target_node->editor_node.bounds.y - ctx->camera_y + 
                         target_node->editor_node.bounds.h * 0.8 + 4;
                     nk_stroke_curve(canvas,
                             output_node_x, output_node_y, output_node_x, output_node_y,
@@ -383,61 +467,70 @@ void quester_draw_editor(struct nk_context *ctx, struct quester_context **q_ctx)
                             nk_rgb(100, 100, 100));
                 }
 
-                struct nk_rect bounds = nk_layout_space_rect_to_local(ctx, panel->bounds);
-                bounds.x += camera_x;
-                bounds.y += camera_y;
+                struct nk_rect bounds = nk_layout_space_rect_to_local(ctx->nk_ctx, panel->bounds);
+                bounds.x += ctx->camera_x;
+                bounds.y += ctx->camera_y;
                 qq_node->editor_node.bounds = bounds;
             }
-            nk_style_default(ctx);
+            nk_style_default(ctx->nk_ctx);
 
             if (mouse_over_node_id == -1)
-                quester_ed_draw_contextual_menu(ctx, q_ctx);
+                quester_ed_draw_contextual_menu(ctx);
             else
             {
-                if (nk_contextual_begin(ctx, 0, nk_vec2(200, 220), nk_window_get_bounds(ctx))) 
+                if (nk_contextual_begin(ctx->nk_ctx, 0, nk_vec2(200, 220), nk_window_get_bounds(ctx->nk_ctx))) 
                 {
-                    nk_layout_row_dynamic(ctx, 25, 1);
+                    nk_layout_row_dynamic(ctx->nk_ctx, 25, 1);
 
-                    if (nk_contextual_item_label(ctx, "Properties", NK_TEXT_LEFT))
+                    if (nk_contextual_item_label(ctx->nk_ctx, "Properties", NK_TEXT_LEFT))
                     {
                         bool exists = false;
-                        for (int i = 0; i < prop_editor_open_count && !exists; i++)
-                            exists |= prop_editor_open_for[i] == mouse_over_node_id;
+                        for (int i = 0; i < ctx->prop_editor_count && !exists; i++)
+                            exists |= ctx->prop_editor_open_for_ids[i] == mouse_over_node_id;
 
                         if (!exists)
-                            prop_editor_open_for[prop_editor_open_count++] = mouse_over_node_id;
+                            ctx->prop_editor_open_for_ids[ctx->prop_editor_count++] = mouse_over_node_id;
                     }
 
-                    targeted_for_deletion = nk_contextual_item_label(ctx, "Delete", NK_TEXT_LEFT);
+                    targeted_for_deletion = nk_contextual_item_label(ctx->nk_ctx, "Delete", NK_TEXT_LEFT);
 
-                    nk_contextual_end(ctx);
+                    if (ctx->q_ctx->static_state->all_nodes[mouse_over_node_id].node.type == QUESTER_BUILTIN_CONTAINER_TASK)
+                    {
+                        if (nk_contextual_item_label(ctx->nk_ctx, "Edit container", NK_TEXT_LEFT))
+                        {
+                            ctx->currently_displayed_container_node_id = mouse_over_node_id;
+                        }
+                    }
+
+                    nk_contextual_end(ctx->nk_ctx);
                 }
             }
         }
-        nk_layout_space_end(ctx);
 
         // panning
         if (mouse_over_node_id == -1 && nk_input_is_mouse_hovering_rect(in,
-                    nk_window_get_bounds(ctx)) &&
-            nk_input_is_mouse_down(in, NK_BUTTON_RIGHT)) {
-            camera_x -= in->mouse.delta.x;
-            camera_y -= in->mouse.delta.y;
+                    nk_window_get_bounds(ctx->nk_ctx)) &&
+            nk_input_is_mouse_down(in, NK_BUTTON_MIDDLE)) {
+            ctx->camera_x -= in->mouse.delta.x;
+            ctx->camera_y -= in->mouse.delta.y;
         }
+
+        nk_layout_space_end(ctx->nk_ctx);
     }
-    nk_end(ctx);
+    nk_end(ctx->nk_ctx);
 
     {
-        int retained_prop_editors[100];
+        int retained_prop_editors[32];
         int retained_prop_count = 0;
-        for (int i = 0; i < prop_editor_open_count; i++)
+        for (int i = 0; i < ctx->prop_editor_count; i++)
         {
-            if (!targeted_for_deletion && quester_ed_draw_task_prop_editor(ctx, q_ctx, prop_editor_open_for[i]))
-                retained_prop_editors[retained_prop_count++] = prop_editor_open_for[i];
+            if (!targeted_for_deletion && quester_ed_draw_task_prop_editor(ctx, ctx->prop_editor_open_for_ids[i]))
+                retained_prop_editors[retained_prop_count++] = ctx->prop_editor_open_for_ids[i];
         }
-        memcpy(prop_editor_open_for, retained_prop_editors, sizeof(int) * 100);
-        prop_editor_open_count = retained_prop_count;
+        memcpy(ctx->prop_editor_open_for_ids, retained_prop_editors, sizeof(retained_prop_editors));
+        ctx->prop_editor_count = retained_prop_count;
     }
 
     if (targeted_for_deletion)
-        quester_remove_node(*q_ctx, mouse_over_node_id);
+        quester_remove_node(ctx->q_ctx, mouse_over_node_id);
 }

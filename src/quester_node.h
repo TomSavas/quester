@@ -54,6 +54,7 @@ struct editor_node
 {
     struct node node;
     struct nk_rect bounds;
+    struct nk_rect prop_rect;
 };
 
 union quester_node
@@ -63,6 +64,7 @@ union quester_node
 };
 
 union quester_node *quester_add_node(struct quester_context *ctx);
+union quester_node *quester_add_container_node(struct quester_context *ctx);
 void quester_remove_node(struct quester_context *ctx, int id);
 
 void quester_add_connection(struct quester_context *ctx, struct out_connection out, struct in_connection in);

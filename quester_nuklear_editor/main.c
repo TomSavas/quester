@@ -64,7 +64,7 @@ int main(void)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    win = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Quester inspector", NULL, NULL);
+    win = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Quester", NULL, NULL);
     glfwMakeContextCurrent(win);
     glfwGetWindowSize(win, &width, &height);
     glfwSetWindowSizeCallback(win, window_resize_callback);
@@ -82,6 +82,8 @@ int main(void)
     nk_glfw3_font_stash_begin(&glfw, &atlas);
     nk_glfw3_font_stash_end(&glfw);
 
+    struct quester_editor_context qe_ctx = { ctx, q_ctx, -1, true, 0, {}, 1200, 800, 0, 0 };
+
     bg.r = 0.10f, bg.g = 0.18f, bg.b = 0.24f, bg.a = 1.0f;
     while (!glfwWindowShouldClose(win))
     {
@@ -89,7 +91,7 @@ int main(void)
         nk_glfw3_new_frame(&glfw);
 
         quester_run(q_ctx);
-        quester_draw_editor(ctx, &q_ctx);
+        quester_draw_editor(&qe_ctx);
 
         glfwGetWindowSize(win, &width, &height);
         glViewport(0, 0, width, height);

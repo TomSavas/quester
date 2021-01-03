@@ -6,8 +6,11 @@ struct test_task
     char str[4096];
 };
 
-void test_task_on_start(struct quester_context *ctx, int id, struct test_task *task, void *_,
-        int started_from_id) {}
+struct quester_activation_result test_task_activator(struct quester_context *ctx, int id, struct test_task *task, void *_,
+        struct in_connection *triggering_connection) 
+{
+    return (struct quester_activation_result) { QUESTER_ACTIVATE };
+}
 
 enum quester_tick_result test_task_tick(struct quester_context *ctx, int id,
         struct test_task *task, void *_)
@@ -39,10 +42,11 @@ struct tracking_timer_task
     int current_value;
 };
 
-void timer_task_on_start(struct quester_context *ctx, int id, struct timer_task *task,
-        struct tracking_timer_task *data, int started_from_id)
+struct quester_activation_result timer_task_activator(struct quester_context *ctx, int id, struct timer_task *task,
+        struct tracking_timer_task *data, struct in_connection *triggering_connection)
 {
     data->current_value = task->start_value;
+    return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
 // Example of how you could use bool as the return type. Point is that 0 represents running
@@ -92,9 +96,9 @@ void timer_task_nk_edit_prop_display(struct nk_context *nk_ctx, struct quester_c
     QUESTER_NODE_IMPLEMENTATION(TEST_TASK)                                                         
 
 #define QUESTER_IMPLEMENT_USER_NODES                                                               \
-    QUESTER_IMPLEMENT_NODE(TEST_TASK, struct test_task, void, test_task_on_start,                  \
+    QUESTER_IMPLEMENT_NODE(TEST_TASK, struct test_task, void, test_task_activator,                  \
             test_task_tick, test_task_nk_display, test_task_nk_edit_prop_display)                  \
     QUESTER_IMPLEMENT_NODE(TIMER_TASK, struct timer_task, struct tracking_timer_task,              \
-            timer_task_on_start, timer_task_tick, timer_task_nk_display,                           \
+            timer_task_activator, timer_task_tick, timer_task_nk_display,                           \
             timer_task_nk_edit_prop_display)                                                       
 

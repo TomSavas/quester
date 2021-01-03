@@ -203,10 +203,6 @@ void quester_run(struct quester_context *ctx)
         enum quester_tick_result tick_result = quester_node_implementations[node->type].tick(ctx,
             node_id, static_node_data, dynamic_node_data);
 
-        // TODO: finish builtin entrypoint implementation
-        if (node->type == QUESTER_BUILTIN_ENTRYPOINT_TASK)
-            tick_result = QUESTER_COMPLETED;
-
         if (tick_result == QUESTER_RUNNING)
             continue;
 
@@ -235,21 +231,62 @@ void quester_run(struct quester_context *ctx)
             // err wrong?
             enum quester_control_flags ctl_flags = dynamic_state->ctl_flags[newly_tracked_node_id];
 
-            if (ctl_flags & QUESTER_CTL_DISABLE_ACTIVATION)
+            if (dup || ctl_flags & QUESTER_CTL_DISABLE_ACTIVATION)
                 continue;
 
-            if (!dup)
-                dynamic_state->tracked_node_ids[dynamic_state->tracked_node_count++] = 
-                    node->out_connections[j].to_id;
+            struct in_connection *in_conn = NULL;
+            for (int k = 0; k < newly_tracked_node->in_connection_count && in_conn == NULL; k++)
+                if (newly_tracked_node->in_connections[k].from_id == node_id)
+                    in_conn = &newly_tracked_node->in_connections[k];
 
-            // NOTE: for the time being, call on_start every time, even if it's a dup
+            // If there is an out connection, there should also be an in connection
+            if (!in_conn)
+                assert(false);
+
             void *newly_tracked_static_node_data = static_state->static_node_data + 
                 quester_find_static_data_offset(ctx, newly_tracked_node_id);
             void *newly_tracked_dynamic_node_data = dynamic_state->tracked_node_data + 
                 quester_find_dynamic_data_offset(ctx, newly_tracked_node_id);
-            quester_node_implementations[newly_tracked_node->type].on_start(ctx,
+            struct quester_activation_result activator_result = 
+                quester_node_implementations[newly_tracked_node->type].activator(ctx,
                     newly_tracked_node_id, newly_tracked_static_node_data,
-                    newly_tracked_dynamic_node_data, node_id);
+                    newly_tracked_dynamic_node_data, in_conn);
+
+            if (activator_result.flags & QUESTER_ACTIVATE)
+                dynamic_state->tracked_node_ids[dynamic_state->tracked_node_count++] = 
+                    node->out_connections[j].to_id;
+
+            // TODO: fix this bullshit, should recursively run activators on those tasks
+            if (activator_result.flags & QUESTER_FORWARD_ACTIVATION)
+            {
+                int dup = 0;
+                for (int k = 0; k < activator_result.id_count; k++)
+                {
+                    for (int l = 0; l < dynamic_state->tracked_node_count; l++)
+                        if (dynamic_state->tracked_node_ids[l] == activator_result.ids[k])
+                        {
+                            dup = 1;
+                            break;
+                        }
+
+                    if (dup)
+                        continue;
+
+                    dynamic_state->tracked_node_ids[dynamic_state->tracked_node_count++] = 
+                        activator_result.ids[k];
+
+                    // TEMP: just for testing
+                    struct in_connection fictional_connection;
+                    void *newly_tracked_static_node_data = static_state->static_node_data + 
+                        quester_find_static_data_offset(ctx, activator_result.ids[k]);
+                    void *newly_tracked_dynamic_node_data = dynamic_state->tracked_node_data + 
+                        quester_find_dynamic_data_offset(ctx, activator_result.ids[k]);
+                    struct quester_activation_result activator_result = 
+                        quester_node_implementations[newly_tracked_node->type].activator(ctx,
+                            activator_result.ids[k], newly_tracked_static_node_data,
+                            newly_tracked_dynamic_node_data, &fictional_connection);
+                }
+            }
         }
     }
 }
