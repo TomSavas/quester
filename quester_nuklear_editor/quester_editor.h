@@ -81,9 +81,12 @@ void quester_ed_draw_contextual_menu(struct quester_editor_context *ctx)
         {
             if (nk_contextual_item_label(ctx->nk_ctx, quester_node_implementations[i].name, NK_TEXT_LEFT))
             {
+                int x = in->mouse.pos.x + ctx->camera_x;
+                int y = in->mouse.pos.y + ctx->camera_y;
+
                 union quester_node *node;
                 if (i == QUESTER_BUILTIN_CONTAINER_TASK)
-                    node = quester_add_container_node(ctx->q_ctx);
+                    node = quester_add_container_node(ctx->q_ctx, x, y);
                 else
                 {
                     node = quester_add_node(ctx->q_ctx);
@@ -105,9 +108,8 @@ void quester_ed_draw_contextual_menu(struct quester_editor_context *ctx)
                 node->editor_node.bounds.w = 300;
                 node->editor_node.bounds.h = 220;
 
-                node->editor_node.bounds.x = in->mouse.pos.x + ctx->camera_x;
-                node->editor_node.bounds.y = in->mouse.pos.y + ctx->camera_y - 
-                    node->editor_node.bounds.h / 2;
+                node->editor_node.bounds.x = x;
+                node->editor_node.bounds.y = y;
 
                 node->editor_node.prop_rect = nk_rect(0, 0, 300, 400);
 
@@ -510,7 +512,7 @@ void quester_draw_editor(struct quester_editor_context *ctx)
         // panning
         if (mouse_over_node_id == -1 && nk_input_is_mouse_hovering_rect(in,
                     nk_window_get_bounds(ctx->nk_ctx)) &&
-            nk_input_is_mouse_down(in, NK_BUTTON_MIDDLE)) {
+            nk_input_is_mouse_down(in, NK_BUTTON_RIGHT)) {
             ctx->camera_x -= in->mouse.delta.x;
             ctx->camera_y -= in->mouse.delta.y;
         }

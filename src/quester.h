@@ -27,8 +27,8 @@ enum quester_node_type
 
 #include <stdbool.h>
 
-#include "quester_node_implementation.h"
 #include "quester_node.h"
+#include "quester_node_implementation.h"
 #include "quester_game_definition.h"
 #include "quester_dynamic_state.h"
 #include "quester_context.h"
@@ -41,7 +41,7 @@ int quester_find_dynamic_data_offset(struct quester_context *ctx, int node_id);
 void quester_fill_with_test_data(struct quester_context *ctx);
 
 void quester_empty() {}
-enum quester_tick_result quester_empty_tick() { return 0; }
+struct quester_tick_result quester_empty_tick() { return (struct quester_tick_result) { 0, 0 }; }
 
 void quester_complete_task(struct quester_context *ctx, int id);
 
@@ -145,7 +145,7 @@ void quester_fill_with_test_data(struct quester_context *ctx)
     node->editor_node.bounds.w = 400;
     node->editor_node.bounds.h = 150;
 
-    node = quester_add_container_node(ctx);
+    node = quester_add_container_node(ctx, 500, 0);
     node->node = (struct node){ QUESTER_BUILTIN_CONTAINER_TASK, 1, "C01", "Container 01" };
     node->editor_node.prop_rect = nk_rect(0, 0, 300, 400);
     node->editor_node.bounds.x = 500;

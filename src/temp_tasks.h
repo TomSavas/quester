@@ -12,11 +12,11 @@ struct quester_activation_result test_task_activator(struct quester_context *ctx
     return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
-enum quester_tick_result test_task_tick(struct quester_context *ctx, int id,
+struct quester_tick_result test_task_tick(struct quester_context *ctx, int id,
         struct test_task *task, void *_)
 {
     printf("%s\n", task->str);
-    return QUESTER_COMPLETED;
+    return (struct quester_tick_result) { 0, QUESTER_COMPLETION_OUTPUT };
 }
 
 void test_task_nk_display(struct nk_context *nk_ctx, struct quester_context *ctx, int id,
@@ -51,10 +51,10 @@ struct quester_activation_result timer_task_activator(struct quester_context *ct
 
 // Example of how you could use bool as the return type. Point is that 0 represents running
 // and 1 - completed, so use bool if that's all you need
-bool timer_task_tick(struct quester_context *ctx, int id, struct timer_task *task,
+struct quester_tick_result timer_task_tick(struct quester_context *ctx, int id, struct timer_task *task,
         struct tracking_timer_task *data)
 {
-    return ++data->current_value >= task->end_value;
+    return (struct quester_tick_result) { (++data->current_value < task->end_value) & QUESTER_STILL_RUNNING, QUESTER_COMPLETION_OUTPUT };
 }
 
 void timer_task_nk_display(struct nk_context *nk_ctx, struct quester_context *ctx, int id,

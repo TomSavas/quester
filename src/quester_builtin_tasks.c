@@ -6,10 +6,10 @@ struct quester_activation_result quester_container_task_activator(struct quester
     switch(triggering_connection->type)
     {
         case QUESTER_ACTIVATION_INPUT:
-            result.flags = QUESTER_ACTIVATE | QUESTER_DISABLE_TICKING;
-            result.id_count = static_node_data->bridge_node_count;
-            memcpy(result.ids, static_node_data->bridge_node_ids,
-                sizeof(int) * static_node_data->bridge_node_count);
+            result.flags = QUESTER_ACTIVATE | QUESTER_DISABLE_TICKING | QUESTER_FORWARD_CONNECTIONS_TO_IDS;
+            result.id_count = static_node_data->in_bridge_node_count;
+            memcpy(result.ids, static_node_data->in_bridge_node_ids,
+                sizeof(int) * static_node_data->in_bridge_node_count);
 
             break;
         // TODO: Add lock/unlock inputs here
@@ -63,10 +63,10 @@ void quester_container_task_display(struct nk_context *nk_ctx, struct quester_co
     //}
 }
 
-enum quester_tick_result quester_container_task_tick(struct quester_context *ctx, int id,
+struct quester_tick_result quester_container_task_tick(struct quester_context *ctx, int id,
     struct quester_container_task_data *static_node_data, void *_)
 {
-    return QUESTER_RUNNING;
+    return (struct quester_tick_result) { QUESTER_STILL_RUNNING, 0 };
 }
 
 void quester_container_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
@@ -151,10 +151,10 @@ void quester_or_task_display (struct nk_context *nk_ctx, struct quester_context 
     static_node_data->only_once = only_once;
 }
 
-enum quester_tick_result quester_or_task_tick(struct quester_context *ctx, int id,
+struct quester_tick_result quester_or_task_tick(struct quester_context *ctx, int id,
     struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data)
 {
-    return QUESTER_COMPLETED;
+    return (struct quester_tick_result) { 0, QUESTER_COMPLETION_OUTPUT };
 }
 
 void quester_or_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
@@ -187,15 +187,17 @@ struct quester_activation_result quester_and_task_activator(struct quester_conte
         printf("duplicate: %d\n", triggering_connection->from_id);
     }
     
-    data->all_dependencies_completed = data->completed_dependency_count == node->in_connection_count;
+    data->all_dependencies_completed = 
+        data->completed_dependency_count == node->in_connection_count;
 
     return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
-enum quester_tick_result quester_and_task_tick(struct quester_context *ctx, int id, void *_,
+struct quester_tick_result quester_and_task_tick(struct quester_context *ctx, int id, void *_,
     struct quester_and_task_dynamic_data *data)
 {
-    return data->all_dependencies_completed;
+    return (struct quester_tick_result) { QUESTER_STILL_RUNNING & !data->all_dependencies_completed,
+        QUESTER_COMPLETION_OUTPUT };
 }
 
 void quester_and_task_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
@@ -212,12 +214,12 @@ struct quester_activation_result quester_placeholder_activator(struct quester_co
         struct quester_placeholder_static_data *static_data,
         struct quester_placeholder_dynamic_data *dynamic_data, struct in_connection *triggering_connection)
 {
-    dynamic_data->tick_result = QUESTER_RUNNING;
+    dynamic_data->tick_result = (struct quester_tick_result) { QUESTER_STILL_RUNNING, QUESTER_COMPLETION_OUTPUT };
 
     return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
-enum quester_tick_result quester_placeholder_tick(struct quester_context *ctx, int id,
+struct quester_tick_result quester_placeholder_tick(struct quester_context *ctx, int id,
     struct quester_placeholder_static_data *static_data,
     struct quester_placeholder_dynamic_data *dynamic_data)
 {
@@ -231,12 +233,12 @@ void quester_placeholder_display (struct nk_context *nk_ctx, struct quester_cont
     nk_layout_row_dynamic(nk_ctx, 25, 2);
     if (nk_button_label(nk_ctx, "Manual complete"))
     {
-        dynamic_data->tick_result = QUESTER_COMPLETED;
+        dynamic_data->tick_result = (struct quester_tick_result){ 0, QUESTER_COMPLETION_OUTPUT };
     }
 
     if (nk_button_label(nk_ctx, "Manual failure"))
     {
-        dynamic_data->tick_result = QUESTER_FAILED;
+        dynamic_data->tick_result = (struct quester_tick_result){ 0, QUESTER_FAILURE_OUTPUT };
     }
 
     nk_layout_row_dynamic(nk_ctx, 25, 1);
@@ -256,42 +258,18 @@ void quester_placeholder_prop_edit_display (struct nk_context *nk_ctx, struct qu
             sizeof(static_data->description), nk_filter_default);
 }
 
-struct quester_activation_result quester_entrypoint_activator(struct quester_context *ctx, int id,
-    void *static_data, void *dynamic_data, struct in_connection *triggering_connection)
-{
-    return (struct quester_activation_result) { QUESTER_ACTIVATE };
-}
-
-enum quester_tick_result quester_entrypoint_tick(struct quester_context *ctx, int id,
-    void *static_data, void *dynamic_data)
-{
-    return QUESTER_COMPLETED;
-}
-
-void quester_entrypoint_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-    void *static_data, void *dynamic_data)
-{
-
-}
-
-void quester_entrypoint_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
-    int id, void *static_data, void *data)
-{
-
-}
-
 struct quester_activation_result quester_in_bridge_activator(struct quester_context *ctx, int id,
     enum in_connection_type *static_data, void *dynamic_data, struct in_connection *triggering_connection)
 {
     assert(triggering_connection->type == *static_data);
 
-    return (struct quester_activation_result) { QUESTER_ACTIVATE | QUESTER_DISABLE_TICKING };
+    return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
-enum quester_tick_result quester_in_bridge_tick(struct quester_context *ctx, int id,
+struct quester_tick_result quester_in_bridge_tick(struct quester_context *ctx, int id,
     enum in_connection_type *static_data, void *dynamic_data)
 {
-    return QUESTER_COMPLETED;
+    return (struct quester_tick_result) { 0, QUESTER_COMPLETION_OUTPUT };
 }
 
 void quester_in_bridge_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
@@ -312,31 +290,39 @@ void quester_in_bridge_prop_edit_display (struct nk_context *nk_ctx, struct ques
 }
 
 struct quester_activation_result quester_out_bridge_activator(struct quester_context *ctx, int id,
-    enum out_connection_type *static_data, void *dynamic_data, struct in_connection *triggering_connection)
+    struct quester_out_bridge_data *static_data, void *dynamic_data, struct in_connection *triggering_connection)
 {
-    return (struct quester_activation_result) { QUESTER_ACTIVATE | QUESTER_DISABLE_TICKING };
+    return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
-enum quester_tick_result quester_out_bridge_tick(struct quester_context *ctx, int id,
-    enum out_connection_type *static_data, void *dynamic_data)
+struct quester_tick_result quester_out_bridge_tick(struct quester_context *ctx, int id,
+    struct quester_out_bridge_data *static_data, void *dynamic_data)
 {
-    // TODO: INCORRECT - there should be a mapping from out_connection_type to quester_tick_result
-    return QUESTER_COMPLETED;
+    return (struct quester_tick_result) { QUESTER_FORWARD_TO_CONTAINER_OUTPUT, static_data->type };
 }
 
 void quester_out_bridge_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-    enum out_connection_type *static_data, void *dynamic_data)
+    struct quester_out_bridge_data *static_data, void *dynamic_data)
 {
     const char *output_types[] =  { "QUESTER_COMPLETION_OUTPUT", "QUESTER_FAILURE_OUTPUT" };
 
     nk_layout_row_dynamic(nk_ctx, 25, 1);
     nk_label(nk_ctx, "Output type", NK_TEXT_LEFT);
-    *static_data = nk_combo(nk_ctx, output_types, sizeof(output_types) / sizeof(char*), *static_data, 25,
+    static_data->type = nk_combo(nk_ctx, output_types, sizeof(output_types) / sizeof(char*), static_data->type, 25,
+            nk_vec2(200, 200));
+
+    const char *actions[] =  { "do nothing", "complete", "fail", "kill" };
+
+    struct node *node = &ctx->static_state->all_nodes[id].node;
+
+    nk_layout_row_dynamic(nk_ctx, 25, 1);
+    nk_label(nk_ctx, "Incoming incomplete task action:", NK_TEXT_LEFT);
+    static_data->behaviour = nk_combo(nk_ctx, actions, sizeof(actions) / sizeof(char*), static_data->behaviour, 25,
             nk_vec2(200, 200));
 }
 
 void quester_out_bridge_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
-    int id, enum out_connection_type *static_data, void *data)
+    int id, struct quester_out_bridge_data *static_data, void *data)
 {
 
 }

@@ -1,8 +1,11 @@
-// Such values have been chosen to enable returning a bool
-// from user tick functions if they don't need "failed" behaviour
-// Having QUESTER_RUNNING be 0 and QUESTER_COMPLETED - 1 allows the user to return a bool from
-// tick function where true stands for completion and false for "not yet completed"
-enum quester_tick_result
+enum quester_tick_result_flags
+{
+    QUESTER_STILL_RUNNING               = 0x1,
+    // for now just kills all of the active container nodes
+    QUESTER_FORWARD_TO_CONTAINER_OUTPUT = 0x2,
+};
+
+enum quester_tick_result_
 {
     QUESTER_RUNNING = 0,
     QUESTER_COMPLETED,
@@ -11,14 +14,25 @@ enum quester_tick_result
     QUESTER_TICK_RESULT_COUNT
 };
 
-// Similarly as above, QUESTER_IGNORE_ACTIVATION being 0 and QUESTER_ACTIVATE - 1 allows activation
-// function to return bool values - false for ignoring activation, true for allowing activation
-// of the task
+// NOTE: Should be a mapping to an array maybe?
+const enum out_connection_type quester_tick_type_to_out_connection_type[QUESTER_TICK_RESULT_COUNT] =
+{
+    -1,                         // Running
+    QUESTER_COMPLETION_OUTPUT,  // Completed
+    QUESTER_FAILURE_OUTPUT      // Failed
+};
+
+struct quester_tick_result
+{
+    enum quester_tick_result_flags flags;
+    enum out_connection_type out_connection_to_trigger;
+};
+
 enum quester_activation_flags
 {
-    QUESTER_ACTIVATE           = 0x1,
-    QUESTER_FORWARD_ACTIVATION = 0x2,
-    QUESTER_DISABLE_TICKING    = 0x4,
+    QUESTER_ACTIVATE                   = 0x1,
+    QUESTER_FORWARD_CONNECTIONS_TO_IDS = 0x2,
+    QUESTER_DISABLE_TICKING            = 0x4,
 };
 
 struct quester_activation_result
@@ -32,7 +46,7 @@ struct quester_activation_result
 
 struct quester_context;
 struct in_connection;
-typedef enum quester_tick_result (*quester_tick_func)(struct quester_context* /*ctx*/, int /*id*/,
+typedef struct quester_tick_result (*quester_tick_func)(struct quester_context* /*ctx*/, int /*id*/,
     void* /*static_node_data*/, void* /*tracking_node_data*/);
 
 typedef struct quester_activation_result (*quester_activation_func)(struct quester_context* /*ctx*/,
@@ -64,7 +78,7 @@ struct quester_node_implementation
 #define QUESTER_IMPLEMENT_NODE(node_type_enum, static_node_data_struct, tracking_node_data_struct, \
         activator_func, tick_func, nk_display_func, nk_prop_edit_display_func)                     \
                                                                                                    \
-    enum quester_tick_result node_type_enum##_tick_typecorrect_wrapper(struct quester_context *ctx,\
+    struct quester_tick_result node_type_enum##_tick_typecorrect_wrapper(struct quester_context *ctx,\
         int id, void *static_node_data, void *tracking_node_data)                                  \
     {                                                                                              \
         return tick_func(ctx, id, (static_node_data_struct*)static_node_data,                      \

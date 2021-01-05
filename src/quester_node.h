@@ -22,14 +22,6 @@ enum out_connection_type
     QUESTER_OUTPUT_TYPE_COUNT
 };
 
-// NOTE: Should be a mapping to an array maybe?
-const enum out_connection_type quester_tick_type_to_out_connection_type[QUESTER_TICK_RESULT_COUNT] =
-{
-    -1,                         // Running
-    QUESTER_COMPLETION_OUTPUT,  // Completed
-    QUESTER_FAILURE_OUTPUT      // Failed
-};
-
 struct out_connection
 {
     enum out_connection_type type;
@@ -64,7 +56,9 @@ union quester_node
 };
 
 union quester_node *quester_add_node(struct quester_context *ctx);
-union quester_node *quester_add_container_node(struct quester_context *ctx);
+//union quester_node *quester_add_container_node(struct quester_context *ctx);
+// TEMP
+union quester_node *quester_add_container_node(struct quester_context *ctx, int x, int y);
 void quester_remove_node(struct quester_context *ctx, int id);
 
 void quester_add_connection(struct quester_context *ctx, struct out_connection out, struct in_connection in);
