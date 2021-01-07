@@ -517,6 +517,15 @@ void quester_draw_editor(struct quester_editor_context *ctx)
             ctx->camera_y -= in->mouse.delta.y;
         }
 
+        char *current_quest = ctx->currently_displayed_container_node_id == -1 
+            ? "Top-level"
+            : ctx->q_ctx->static_state->all_nodes[ctx->currently_displayed_container_node_id].node.mission_id;
+        int s = ctx->nk_ctx->style.font->height;
+        ((struct nk_user_font*)ctx->nk_ctx->style.font)->height = 72;
+        struct nk_rect r = nk_rect(10, 60, 1000, 1000);
+        nk_draw_text(canvas, r, current_quest, strlen(current_quest), ctx->nk_ctx->style.font, nk_rgba(255, 255, 255, 100), nk_rgba(255, 255, 255, 100));
+        ((struct nk_user_font*)ctx->nk_ctx->style.font)->height = s;
+
         nk_layout_space_end(ctx->nk_ctx);
     }
     nk_end(ctx->nk_ctx);
