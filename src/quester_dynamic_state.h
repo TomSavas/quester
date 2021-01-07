@@ -19,11 +19,7 @@ struct quester_dynamic_state
     int *tracked_node_ids;
 
     // debug/editor only
-    int failed_node_count;
-    int *failed_node_ids;
-
-    int completed_node_count;
-    int *completed_node_ids;
+    enum out_connection_type *finishing_status;
     // debug/editor only
 
     int node_count;

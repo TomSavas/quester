@@ -339,9 +339,28 @@ void quester_draw_editor(struct quester_editor_context *ctx)
                 struct nk_panel *panel;
 
                 if (is_tracked)
+                {
                     quester_ed_set_active_style(ctx->nk_ctx);
+                }
                 else
+                {
                     nk_style_default(ctx->nk_ctx);
+
+                    switch(ctx->q_ctx->dynamic_state->finishing_status[id])
+                    {
+                        case QUESTER_COMPLETION_OUTPUT:
+                            ctx->nk_ctx->style.window.header.normal = nk_style_item_color(nk_rgba(70, 120, 70, 255));
+                            ctx->nk_ctx->style.window.header.hover = nk_style_item_color(nk_rgba(90, 140, 90, 255));
+                            break;
+                        case QUESTER_FAILURE_OUTPUT:
+                            ctx->nk_ctx->style.window.header.normal = nk_style_item_color(nk_rgba(120, 70, 70, 255));
+                            ctx->nk_ctx->style.window.header.hover = nk_style_item_color(nk_rgba(140, 90, 90, 255));
+                            break;
+                        default:
+                            break;
+                    }
+
+                }
 
                 struct nk_rect node_rect = nk_rect(x, y, w, h);
                 nk_layout_space_push(ctx->nk_ctx, node_rect);
