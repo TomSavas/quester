@@ -33,8 +33,8 @@
 #include "temp_tasks.h"
 
 #define QUESTER_IMPLEMENTATION
-#include "quester.h"
-#include "quester_editor.h"
+    #include "quester_editor.h"
+    //#include "quester.h"
 #undef QUESTER_IMPLEMENTATION
 
 static void error_callback(int e, const char *d)
@@ -53,7 +53,7 @@ int main(void)
     int width = 0, height = 0;
     struct nk_context *ctx;
     struct nk_colorf bg;
-    struct quester_context *q_ctx = quester_init(200);
+    struct quester_context *q_ctx = quester_init(2000);
 
     glfwSetErrorCallback(error_callback);
     if (!glfwInit()) 

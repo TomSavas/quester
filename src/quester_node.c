@@ -8,6 +8,8 @@ union quester_node *quester_add_node(struct quester_context *ctx)
     ctx->dynamic_state->node_count++;
     node->node.id = id;
 
+    node->node.owning_node_id = -1;
+
     return node;
 }
 
@@ -17,7 +19,8 @@ union quester_node *quester_add_container_node(struct quester_context *ctx, int 
 
     union quester_node *in_bridge = quester_add_node(ctx);
     in_bridge->node.type = QUESTER_BUILTIN_IN_BRIDGE_TASK;
-    enum in_connection_type *in_bridge_type = ctx->static_state->static_node_data + 
+    in_bridge->node.owning_node_id = container_node->node.id;
+    enum quester_in_connection_type *in_bridge_type = ctx->static_state->static_node_data + 
         quester_find_static_data_offset(ctx, in_bridge->node.id);
     *in_bridge_type = QUESTER_ACTIVATION_INPUT;
     // TEMP
@@ -28,7 +31,8 @@ union quester_node *quester_add_container_node(struct quester_context *ctx, int 
 
     union quester_node *completion_out_bridge = quester_add_node(ctx);
     completion_out_bridge->node.type = QUESTER_BUILTIN_OUT_BRIDGE_TASK;
-    enum out_connection_type *completion_bridge_type = ctx->static_state->static_node_data + 
+    completion_out_bridge->node.owning_node_id = container_node->node.id;
+    enum quester_out_connection_type *completion_bridge_type = ctx->static_state->static_node_data + 
         quester_find_static_data_offset(ctx, completion_out_bridge->node.id);
     *completion_bridge_type = QUESTER_COMPLETION_OUTPUT;
     // TEMP
@@ -39,7 +43,8 @@ union quester_node *quester_add_container_node(struct quester_context *ctx, int 
 
     union quester_node *failure_out_bridge = quester_add_node(ctx);
     failure_out_bridge->node.type = QUESTER_BUILTIN_OUT_BRIDGE_TASK;
-    enum out_connection_type *failure_bridge_type = ctx->static_state->static_node_data + 
+    failure_out_bridge->node.owning_node_id = container_node->node.id;
+    enum quester_out_connection_type *failure_bridge_type = ctx->static_state->static_node_data + 
         quester_find_static_data_offset(ctx, failure_out_bridge->node.id);
     *failure_bridge_type = QUESTER_FAILURE_OUTPUT;
     // TEMP
@@ -89,13 +94,20 @@ void quester_remove_node(struct quester_context *ctx, int id)
     ctx->static_state->available_ids[available_id_index] = node->id;
 }
 
-void quester_add_connection(struct quester_context *ctx, struct out_connection out, struct in_connection in)
+void quester_add_connection(struct quester_context *ctx, struct quester_out_connection out, struct quester_in_connection in)
 {
     int from_node_index = quester_find_index(ctx, in.from_id);
     int to_node_index = quester_find_index(ctx, out.to_id);
 
     struct node *from_node = &ctx->static_state->all_nodes[from_node_index].node;
     struct node *to_node = &ctx->static_state->all_nodes[to_node_index].node;
+
+    // In bridges should not have _any_ incoming connections. They are activated by forwarding
+    // connections from the container node.
+    assert(to_node->type != QUESTER_BUILTIN_IN_BRIDGE_TASK);
+    // Out bridges should not have _any_ outgoing connections. They delegate output to the
+    // container node.
+    assert(from_node->type != QUESTER_BUILTIN_OUT_BRIDGE_TASK);
 
     from_node->out_connections[from_node->out_connection_count++] = out;
     to_node->in_connections[to_node->in_connection_count++] = in;

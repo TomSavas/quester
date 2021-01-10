@@ -7,27 +7,33 @@ struct test_task
 };
 
 struct quester_activation_result test_task_activator(struct quester_context *ctx, int id, struct test_task *task, void *_,
-        struct in_connection *triggering_connection) 
+    struct quester_connection *triggering_connection) 
 {
     return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
+struct quester_activation_result test_task_non_activator(struct quester_context *ctx, int id, struct test_task *task, void *_,
+    struct quester_connection *triggering_connection) 
+{
+    return (struct quester_activation_result) { 0 };
+}
+
 struct quester_tick_result test_task_tick(struct quester_context *ctx, int id,
-        struct test_task *task, void *_)
+    struct test_task *task, void *_)
 {
     printf("%s\n", task->str);
     return (struct quester_tick_result) { 0, QUESTER_COMPLETION_OUTPUT };
 }
 
 void test_task_nk_display(struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-        struct test_task *task, void *_)
+    struct test_task *task, void *_)
 {
     //nk_layout_row_dynamic(ctx, 25, 1);
     //nk_label(ctx, q_node->name, NK_TEXT_LEFT);
 }
 
 void test_task_nk_edit_prop_display(struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-        struct test_task *task, void *_)
+    struct test_task *task, void *_)
 {
 }
 
@@ -43,22 +49,26 @@ struct tracking_timer_task
 };
 
 struct quester_activation_result timer_task_activator(struct quester_context *ctx, int id, struct timer_task *task,
-        struct tracking_timer_task *data, struct in_connection *triggering_connection)
+    struct tracking_timer_task *data, struct quester_connection *triggering_connection)
 {
     data->current_value = task->start_value;
     return (struct quester_activation_result) { QUESTER_ACTIVATE };
 }
 
-// Example of how you could use bool as the return type. Point is that 0 represents running
-// and 1 - completed, so use bool if that's all you need
+struct quester_activation_result timer_task_non_activator(struct quester_context *ctx, int id, struct timer_task *task,
+    struct tracking_timer_task *data, struct quester_connection *triggering_connection)
+{
+    return (struct quester_activation_result) { 0 };
+}
+
 struct quester_tick_result timer_task_tick(struct quester_context *ctx, int id, struct timer_task *task,
-        struct tracking_timer_task *data)
+    struct tracking_timer_task *data)
 {
     return (struct quester_tick_result) { (++data->current_value < task->end_value) & QUESTER_STILL_RUNNING, QUESTER_COMPLETION_OUTPUT };
 }
 
 void timer_task_nk_display(struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-        struct timer_task *task, struct tracking_timer_task *data) 
+    struct timer_task *task, struct tracking_timer_task *data) 
 {
     char current_value[128] = "Current timer value: ";
     char value[32];
@@ -70,7 +80,7 @@ void timer_task_nk_display(struct nk_context *nk_ctx, struct quester_context *ct
 }
 
 void timer_task_nk_edit_prop_display(struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-        struct timer_task *task, struct tracking_timer_task *data) 
+    struct timer_task *task, struct tracking_timer_task *data) 
 {
     char value[32];
     
@@ -87,18 +97,14 @@ void timer_task_nk_edit_prop_display(struct nk_context *nk_ctx, struct quester_c
     task->end_value = atoi(value);
 }
 
-#define QUESTER_USER_NODE_TYPE_ENUMS                                                               \
-    TIMER_TASK,                                                                                    \
-    TEST_TASK
-
-#define QUESTER_USER_NODE_IMPLEMENTATIONS                                                          \
-    QUESTER_NODE_IMPLEMENTATION(TIMER_TASK),                                                       \
-    QUESTER_NODE_IMPLEMENTATION(TEST_TASK)                                                         
+#define QUESTER_USER_NODE_TYPES(F)                                                                 \
+    F(TIMER_TASK),                                                                                 \
+    F(TEST_TASK)
 
 #define QUESTER_IMPLEMENT_USER_NODES                                                               \
-    QUESTER_IMPLEMENT_NODE(TEST_TASK, struct test_task, void, test_task_activator,                  \
-            test_task_tick, test_task_nk_display, test_task_nk_edit_prop_display)                  \
+    QUESTER_IMPLEMENT_NODE(TEST_TASK, struct test_task, void, test_task_activator, test_task_non_activator,                 \
+        test_task_tick, test_task_nk_display, test_task_nk_edit_prop_display)                      \
     QUESTER_IMPLEMENT_NODE(TIMER_TASK, struct timer_task, struct tracking_timer_task,              \
-            timer_task_activator, timer_task_tick, timer_task_nk_display,                           \
-            timer_task_nk_edit_prop_display)                                                       
+        timer_task_activator, timer_task_non_activator, timer_task_tick, timer_task_nk_display,                              \
+        timer_task_nk_edit_prop_display)                                                       
 

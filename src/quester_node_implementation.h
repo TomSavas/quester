@@ -1,57 +1,46 @@
 enum quester_tick_result_flags
 {
     QUESTER_STILL_RUNNING               = 0x1,
-    // for now just kills all of the active container nodes
-    QUESTER_FORWARD_TO_CONTAINER_OUTPUT = 0x2,
-};
-
-enum quester_tick_result_
-{
-    QUESTER_RUNNING = 0,
-    QUESTER_COMPLETED,
-    QUESTER_FAILED,
-
-    QUESTER_TICK_RESULT_COUNT
-};
-
-// NOTE: Should be a mapping to an array maybe?
-const enum out_connection_type quester_tick_type_to_out_connection_type[QUESTER_TICK_RESULT_COUNT] =
-{
-    -1,                         // Running
-    QUESTER_COMPLETION_OUTPUT,  // Completed
-    QUESTER_FAILURE_OUTPUT      // Failed
+    QUESTER_FORWARD_TICK_RESULT_TO_IDS  = 0x2,
+    // TODO: implement ticking disabling from the tick result
+    //QUESTER_DISABLE_TICKING           = 0x4,
 };
 
 struct quester_tick_result
 {
     enum quester_tick_result_flags flags;
-    enum out_connection_type out_connection_to_trigger;
+    enum quester_out_connection_type out_connection_to_trigger;
+
+    enum quester_tick_result_flags flags_to_forward;
+    enum quester_out_connection_type out_connections_to_forward_trigger;
+    int id_count;
+    int ids[64];
 };
 
 enum quester_activation_flags
 {
     QUESTER_ACTIVATE                   = 0x1,
     QUESTER_FORWARD_CONNECTIONS_TO_IDS = 0x2,
+    // TODO: finish implementing
     QUESTER_DISABLE_TICKING            = 0x4,
+    QUESTER_ALLOW_REPEATED_ACTIVATIONS = 0x8,
 };
 
 struct quester_activation_result
 {
     enum quester_activation_flags flags;
 
-    // For passing in nodes that need to have something performed on them
     int id_count;
     int ids[256];
 };
 
 struct quester_context;
-struct in_connection;
 typedef struct quester_tick_result (*quester_tick_func)(struct quester_context* /*ctx*/, int /*id*/,
     void* /*static_node_data*/, void* /*tracking_node_data*/);
 
 typedef struct quester_activation_result (*quester_activation_func)(struct quester_context* /*ctx*/,
     int /*id*/, void* /*static_node_data*/, void* /*tracking_node_data*/, 
-    struct in_connection* /*triggering_connection*/);
+    struct quester_connection* /*triggering_connection*/);
 
 // TODO: make API independent
 typedef void (*quester_display_func)(struct nk_context* /*nk_ctx*/, struct quester_context* /*ctx*/,
@@ -60,26 +49,39 @@ typedef void (*quester_prop_edit_display_func)(struct nk_context* /*nk_ctx*/,
     struct quester_context* /*ctx*/, int /*id*/, void* /*static_node_data*/,
     void* /*tracking_node_data*/);
 
+typedef int (*quester_get_size)();
+
 struct quester_node_implementation
 {
-    const char name[256];
+    const char *name;
 
-    quester_activation_func activator;
+    // Called whenever a node that is connected to this node activates any connection that connects
+    // the two.
+    const quester_activation_func activator;
+    // Called whenever a node that is connected to this node activates any other connection
+    // than the one(s) that connects the two.
+    const quester_activation_func non_activator;
 
-    quester_tick_func tick;
+    const quester_tick_func tick;
 
-    quester_display_func nk_display;
-    quester_prop_edit_display_func nk_prop_edit_display;
+    const quester_display_func nk_display;
+    const quester_prop_edit_display_func nk_prop_edit_display;
 
-    const int static_data_size;
-    const int tracking_data_size;
+    const quester_get_size static_data_size;
+    const quester_get_size tracking_data_size;
 };
 
+/*
+ * Defines a bunch of function wrappers that are "type correct" - they do type casts to avoid
+ * compiler errors. 
+ * You _HAVE_ to use either this or QUESTER_AUTO_IMPLEMENT_NODE(recommended) macros to register your
+ * type with the quester system.
+ */
 #define QUESTER_IMPLEMENT_NODE(node_type_enum, static_node_data_struct, tracking_node_data_struct, \
-        activator_func, tick_func, nk_display_func, nk_prop_edit_display_func)                     \
+        activator_func, non_activator_func, tick_func, nk_display_func, nk_prop_edit_display_func) \
                                                                                                    \
-    struct quester_tick_result node_type_enum##_tick_typecorrect_wrapper(struct quester_context *ctx,\
-        int id, void *static_node_data, void *tracking_node_data)                                  \
+    struct quester_tick_result node_type_enum##_tick_typecorrect_wrapper(                          \
+        struct quester_context *ctx, int id, void *static_node_data, void *tracking_node_data)     \
     {                                                                                              \
         return tick_func(ctx, id, (static_node_data_struct*)static_node_data,                      \
             (tracking_node_data_struct*)tracking_node_data);                                       \
@@ -88,9 +90,17 @@ struct quester_node_implementation
     struct quester_activation_result node_type_enum##_activator_typecorrect_wrapper(               \
         struct quester_context *ctx, int id,                                                       \
         void *static_node_data, void *tracking_node_data,                                          \
-        struct in_connection *triggering_connection)                                               \
+        struct quester_connection *triggering_connection)                                          \
     {                                                                                              \
         return activator_func(ctx, id, (static_node_data_struct*)static_node_data,                 \
+            (tracking_node_data_struct*)tracking_node_data, triggering_connection);                \
+    }                                                                                              \
+                                                                                                   \
+    struct quester_activation_result node_type_enum##_non_activator_typecorrect_wrapper(           \
+        struct quester_context *ctx, int id, void *static_node_data, void *tracking_node_data,     \
+        struct quester_connection *triggering_connection)                                          \
+    {                                                                                              \
+        return non_activator_func(ctx, id, (static_node_data_struct*)static_node_data,             \
             (tracking_node_data_struct*)tracking_node_data, triggering_connection);                \
     }                                                                                              \
                                                                                                    \
@@ -108,22 +118,24 @@ struct quester_node_implementation
             (tracking_node_data_struct*)tracking_node_data);                                       \
     }                                                                                              \
                                                                                                    \
-    const int static_data_size_##node_type_enum = sizeof(static_node_data_struct);                 \
-    const int tracking_data_size_##node_type_enum = sizeof(tracking_node_data_struct);             
+    int static_data_size_##node_type_enum() { return sizeof(static_node_data_struct); }            \
+    int tracking_data_size_##node_type_enum() { return sizeof(tracking_node_data_struct); }
 
-// NOTE: possible to reduce .static_data_size / .tracking_data_size to true compile-time constants?
-// Yeah okay, here's the solution to try in the future: 
-    //int static_data_size_##node_type_enum() { return sizeof(static_node_data_struct); }          \
-    //int tracking_data_size_##node_type_enum() { return sizeof(tracking_node_data_struct); }      \
-// and then just call those functions when we need the size and pray that the compiler is smart
-// enough to optimize out those function calls into.
-// Now that I think though it probably won't be able to do that because it will access the function
-// through a pointer... Fuck me, no tcc for now I suppose.
+/*
+ * Saves you the typing that you'd have to do with QUESTER_IMPLEMENT_NODE, but poses a constraint -
+ * your functions have all to be of format <prefix>_<quester_function_suffix>, e.g. if your 
+ * task is called some_test_task, then your functions should have names like:
+ * some_test_task_activator, some_test_task_non_activator, some_test_task_tick, etc.
+ */
+#define QUESTER_AUTO_IMPLEMENT_NODE(node_type_enum, prefix)                                        \
+    QUESTER_IMPLEMENT_NODE(node_type_enum, prefix##_definition, prefix##_data, prefix##_activator, \
+    prefix##_non_activator, prefix##_tick, prefix##_display, prefix##_prop_edit)
 
 #define QUESTER_NODE_IMPLEMENTATION(node_type_enum)                                                \
     {                                                                                              \
         .name                 = #node_type_enum,                                                   \
         .activator            = node_type_enum##_activator_typecorrect_wrapper,                    \
+        .non_activator        = node_type_enum##_non_activator_typecorrect_wrapper,                \
         .tick                 = node_type_enum##_tick_typecorrect_wrapper,                         \
         .nk_display           = node_type_enum##_nk_display_typecorrect_wrapper,                   \
         .nk_prop_edit_display = node_type_enum##_nk_prop_edit_display_typecorrect_wrapper,         \

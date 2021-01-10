@@ -1,3 +1,5 @@
+#include "quester.h"
+
 static const char quester_editor[] = "Quester mission editor";
 int width = 1200, height = 800;
 
@@ -356,6 +358,11 @@ void quester_draw_editor(struct quester_editor_context *ctx)
                             ctx->nk_ctx->style.window.header.normal = nk_style_item_color(nk_rgba(120, 70, 70, 255));
                             ctx->nk_ctx->style.window.header.hover = nk_style_item_color(nk_rgba(140, 90, 90, 255));
                             break;
+                        case QUESTER_DEAD_OUTPUT:
+                            ctx->nk_ctx->style.window.header.normal = nk_style_item_color(nk_rgba(30, 30, 30, 255));
+                            ctx->nk_ctx->style.window.header.hover = nk_style_item_color(nk_rgba(40, 40, 40, 255));
+                            ctx->nk_ctx->style.window.fixed_background = nk_style_item_color(nk_rgba(35, 35, 35, 255));
+                            break;
                         default:
                             break;
                     }
@@ -400,7 +407,7 @@ void quester_draw_editor(struct quester_editor_context *ctx)
                             nk_layout_space_rect_to_screen(ctx->nk_ctx, node_rect)))
                     mouse_over_node_id = q_node->id;
 
-                static enum out_connection_type out_type = -1;
+                static enum quester_out_connection_type out_type = -1;
                 static bool is_dragging_connection = false;
                 static float drag_start_x;
                 static float drag_start_y;
@@ -452,8 +459,8 @@ void quester_draw_editor(struct quester_editor_context *ctx)
                                         ctx->q_ctx->static_state->all_nodes[j].node.id);
 
                                 // TODO: fix to work with other types
-                                quester_add_connection(ctx->q_ctx, (struct out_connection) { out_type, ctx->q_ctx->static_state->all_nodes[j].node.id},
-                                    (struct in_connection) { QUESTER_ACTIVATION_INPUT, dragged_from_id });
+                                quester_add_connection(ctx->q_ctx, (struct quester_out_connection) { out_type, ctx->q_ctx->static_state->all_nodes[j].node.id},
+                                    (struct quester_in_connection) { QUESTER_ACTIVATION_INPUT, dragged_from_id });
                                 break;
                             }
                         }

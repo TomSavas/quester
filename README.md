@@ -4,6 +4,7 @@ Small toolbox for creating, implementing and debugging quests in your game.</br>
 + quester_nuklear_editor - simple [nuklear](https://github.com/Immediate-Mode-UI/Nuklear) based editor, that can either be used as a standalone editor, or implemented into your game
 
 ## Todo
++ Add support for generating quests at game runtime
 + A manual on how to use and customize quester
 + Cpp wrapper around quester, that supports member functions, etc.
 + ImGui editor

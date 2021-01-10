@@ -3,10 +3,10 @@
 #include <stdio.h>
 struct quester_context *quester_init(int capacity)
 {
-    size_t static_state_size = sizeof(struct quester_game_definition) + 
+    size_t static_state_size = sizeof(struct quester_quest_definitions) + 
         (sizeof(int) + sizeof(union quester_node) + quester_max_static_data_size()) * capacity;
-    size_t dynamic_state_size = sizeof(struct quester_dynamic_state) +
-        (sizeof(int) + sizeof(int) + sizeof(int) + sizeof(enum quester_control_flags) + 
+    size_t dynamic_state_size = sizeof(struct quester_runtime_quest_data) +
+        (sizeof(int) + sizeof(int) + sizeof(int) + sizeof(enum quester_activation_flags) + 
          quester_max_dynamic_data_size()) * capacity;
 
     size_t total_ctx_size = sizeof(struct quester_context) + static_state_size + dynamic_state_size;
@@ -18,7 +18,7 @@ struct quester_context *quester_init(int capacity)
 
     ctx->static_state = (void*)ctx + sizeof(struct quester_context);
     ctx->static_state->available_ids = (void*)ctx->static_state + 
-        sizeof(struct quester_game_definition);
+        sizeof(struct quester_quest_definitions);
     ctx->static_state->initially_tracked_node_ids = (void*)ctx->static_state->available_ids + 
         sizeof(int) * capacity;
     ctx->static_state->all_nodes = (void*)ctx->static_state->initially_tracked_node_ids + 
@@ -36,11 +36,11 @@ struct quester_context *quester_init(int capacity)
 
     ctx->dynamic_state = (void*)ctx->static_state + static_state_size;
     ctx->dynamic_state->finishing_status = (void*)ctx->dynamic_state + 
-        sizeof(struct quester_dynamic_state);
-    ctx->dynamic_state->ctl_flags = (void*)ctx->dynamic_state->finishing_status + 
-        sizeof(enum out_connection_type) * capacity;
-    ctx->dynamic_state->tracked_node_ids = (void*)ctx->dynamic_state->ctl_flags + 
-        sizeof(enum quester_control_flags) * capacity;
+        sizeof(struct quester_runtime_quest_data);
+    ctx->dynamic_state->activation_flags = (void*)ctx->dynamic_state->finishing_status + 
+        sizeof(enum quester_out_connection_type) * capacity;
+    ctx->dynamic_state->tracked_node_ids = (void*)ctx->dynamic_state->activation_flags + 
+        sizeof(enum quester_activation_flags) * capacity;
     ctx->dynamic_state->tracked_node_data = (void*)ctx->dynamic_state->tracked_node_ids + 
         sizeof(int) * capacity;
     ctx->dynamic_state->size = dynamic_state_size;
@@ -57,126 +57,11 @@ void quester_free(struct quester_context *ctx)
     free(ctx);
 }
 
-void quester_dump_static_bin(struct quester_context *ctx, const char *dir_path,
-        const char *filename)
-{
-    char *filepath = malloc(sizeof(char) * (strlen(dir_path) + strlen(filename) + 6));
-    filepath[0] = '\0';
-    strcat(filepath, dir_path);
-    strcat(filepath, filename);
-    strcat(filepath, ".s_bin");
-
-    FILE *f = fopen(filepath, "w");
-    fwrite(ctx->static_state, ctx->static_state->size, 1, f);
-    fclose(f);
-
-    free(filepath);
-}
-
-void quester_load_static_bin(struct quester_context **ctx, const char *dir_path,
-        const char *filename)
-{
-    char *filepath = malloc(sizeof(char) * (strlen(dir_path) + strlen(filename) + 6));
-    filepath[0] = '\0';
-    strcat(filepath, dir_path);
-    strcat(filepath, filename);
-    strcat(filepath, ".s_bin");
-
-    FILE *f = fopen(filepath, "r");
-
-    size_t static_state_size;
-    fread(&static_state_size, sizeof(size_t), 1, f);
-
-    if ((*ctx)->static_state->size < static_state_size)
-    {
-        size_t new_size = sizeof(struct quester_context) + static_state_size + 
-            (*ctx)->dynamic_state->size;
-        *ctx = realloc(*ctx, new_size);
-
-        // move dynamic_state to give more space to static_state
-        struct quester_dynamic_state *new_dynamic_state = (void*)*ctx + 
-            sizeof(struct quester_context) + static_state_size;
-        memmove(new_dynamic_state, (*ctx)->dynamic_state, (*ctx)->dynamic_state->size);
-        (*ctx)->dynamic_state = new_dynamic_state;
-    }
-    struct quester_game_definition *static_state = (*ctx)->static_state;
-    memset(static_state, 0, static_state_size);
-    static_state->size = static_state_size;
-
-    fread((void*)static_state + sizeof(size_t), static_state_size - sizeof(size_t), 1, f);
-
-    static_state->available_ids = (void*)static_state + 
-        sizeof(struct quester_game_definition); 
-    static_state->initially_tracked_node_ids = (void*)static_state->available_ids + 
-        sizeof(int) * static_state->capacity;
-    static_state->all_nodes = (void*)static_state->initially_tracked_node_ids + 
-        sizeof(int) * static_state->capacity;
-    static_state->static_node_data = (void*)static_state->all_nodes + 
-        sizeof(union quester_node) * static_state->capacity;
-
-    quester_reset_dynamic_state(*ctx);
-}
-
-void quester_dump_dynamic_bin(struct quester_context *ctx, const char *dir_path,
-        const char *filename)
-{
-    char *filepath = malloc(sizeof(char) * (strlen(dir_path) + strlen(filename) + 6));
-    filepath[0] = '\0';
-    strcat(filepath, dir_path);
-    strcat(filepath, filename);
-    strcat(filepath, ".d_bin");
-
-    FILE *f = fopen(filepath, "w");
-    fwrite(ctx->dynamic_state, ctx->dynamic_state->size, 1, f);
-    fclose(f);
-
-    free(filepath);
-}
-
-void quester_load_dynamic_bin(struct quester_context **ctx, const char *dir_path,
-        const char *filename)
-{
-    char *filepath = malloc(sizeof(char) * (strlen(dir_path) + strlen(filename) + 6));
-    filepath[0] = '\0';
-    strcat(filepath, dir_path);
-    strcat(filepath, filename);
-    strcat(filepath, ".d_bin");
-
-    FILE *f = fopen(filepath, "r");
-
-    size_t dynamic_state_size;
-    fread(&dynamic_state_size, sizeof(size_t), 1, f);
-
-    if ((*ctx)->dynamic_state->size < dynamic_state_size)
-    {
-        size_t new_size = sizeof(struct quester_context) + (*ctx)->static_state->size + 
-            dynamic_state_size;
-        *ctx = realloc(*ctx, new_size);
-
-        (*ctx)->dynamic_state = (void*)*ctx + sizeof(struct quester_context) + 
-            (*ctx)->static_state->size;
-    }
-    struct quester_dynamic_state *dynamic_state = (*ctx)->dynamic_state;
-    memset(dynamic_state, 0, dynamic_state_size);
-    dynamic_state->size = dynamic_state_size;
-
-    fread((void*)dynamic_state + sizeof(size_t), dynamic_state_size - sizeof(size_t), 1, f);
-
-    (*ctx)->dynamic_state->finishing_status = (void*)(*ctx)->dynamic_state + 
-        sizeof(struct quester_dynamic_state);
-    (*ctx)->dynamic_state->ctl_flags = (void*)(*ctx)->dynamic_state->finishing_status + 
-        sizeof(enum out_connection_type) * dynamic_state->capacity;
-    (*ctx)->dynamic_state->tracked_node_ids = (void*)(*ctx)->dynamic_state->ctl_flags + 
-        sizeof(enum quester_control_flags) * dynamic_state->capacity;
-    (*ctx)->dynamic_state->tracked_node_data = (void*)(*ctx)->dynamic_state->tracked_node_ids + 
-        sizeof(int) * dynamic_state->capacity;
-}
-
 // TEMP:
 int quester_find_tracked_owning_container(struct quester_context *ctx, int node_id)
 {
-    struct quester_game_definition *static_state = ctx->static_state;
-    struct quester_dynamic_state *dynamic_state = ctx->dynamic_state;
+    struct quester_quest_definitions *static_state = ctx->static_state;
+    struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
 
     for (int i = 0; i < dynamic_state->tracked_node_count; i++)
     {
@@ -197,47 +82,108 @@ int quester_find_tracked_owning_container(struct quester_context *ctx, int node_
     return -1;
 }
 
-struct quester_activation_result quester_activate_node(struct quester_context *ctx,
-    struct in_connection in, int id)
+struct quester_activation_result quester_trigger_activators(struct quester_context *ctx,
+    struct quester_connection connection, int id, bool is_non_activating)
 {
-    struct quester_game_definition *static_state = ctx->static_state;
-    struct quester_dynamic_state *dynamic_state = ctx->dynamic_state;
+    struct quester_quest_definitions *static_state = ctx->static_state;
+    struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
 
     struct node *node = &static_state->all_nodes[id].node;
 
-    // No repeated starts
-    for (int i = 0; i < dynamic_state->tracked_node_count; i++)
-        if (dynamic_state->tracked_node_ids[i] == id)
-            return (struct quester_activation_result) { 0 };
-
-    // Need a better solution, or tidy up dynamic flags
-    enum quester_control_flags ctl_flags = dynamic_state->ctl_flags[id];
-    if (ctl_flags & QUESTER_CTL_DISABLE_ACTIVATION)
-        return (struct quester_activation_result) { 0 };
+    enum quester_activation_flags previous_activation_flags = dynamic_state->activation_flags[id];
+    if (!(previous_activation_flags & QUESTER_ALLOW_REPEATED_ACTIVATIONS))
+    {
+        for (int i = 0; i < dynamic_state->tracked_node_count; i++)
+            if (dynamic_state->tracked_node_ids[i] == id)
+                return (struct quester_activation_result) { 0 };
+    }
 
     void *static_data = static_state->static_node_data + quester_find_static_data_offset(ctx, id);
     void *dynamic_data = dynamic_state->tracked_node_data + 
         quester_find_dynamic_data_offset(ctx, id);
-    struct quester_activation_result activator_result = 
-        quester_node_implementations[node->type].activator(ctx, id, static_data, dynamic_data, &in);
+    struct quester_activation_result activator_result = is_non_activating
+        ? quester_node_implementations[node->type].non_activator(ctx, id, static_data, dynamic_data, &connection)
+        : quester_node_implementations[node->type].activator(ctx, id, static_data, dynamic_data, &connection);
 
     // Editor only, signal that the node hasn't been completed
     dynamic_state->finishing_status[id] = -1;
+    dynamic_state->activation_flags[id] = activator_result.flags;
 
     return activator_result;
 }
 
-void quester_activate_node_recurse(struct quester_context *ctx, struct in_connection in, int id,
-    int *nodes_to_add_count, int *nodes_to_add)
+void quester_trigger_activators_recurse(struct quester_context *ctx,
+    struct quester_connection connection,
+    int *nodes_to_add_count, int *nodes_to_add, bool is_non_activating)
 {
-    struct quester_activation_result res = quester_activate_node(ctx, in, id);
+    struct quester_activation_result res = quester_trigger_activators(ctx, connection, connection.out.to_id, is_non_activating);
 
     if (res.flags & QUESTER_ACTIVATE)
-        nodes_to_add[(*nodes_to_add_count)++] = id;
+        nodes_to_add[(*nodes_to_add_count)++] = connection.out.to_id;
 
     if (res.flags & QUESTER_FORWARD_CONNECTIONS_TO_IDS)
         for (int i = 0; i < res.id_count; i++)
-            quester_activate_node_recurse(ctx, in, res.ids[i], nodes_to_add_count, nodes_to_add);
+        {
+            connection.out.to_id = res.ids[i];
+            quester_trigger_activators_recurse(ctx, connection, nodes_to_add_count, nodes_to_add, is_non_activating);
+        }
+}
+
+void quester_run_node_recurse(struct quester_context *ctx, int id, struct quester_tick_result *forwarded_tick_result,
+    int *nodes_to_remove_count, int *nodes_to_remove, int *nodes_to_add_count, int *nodes_to_add)
+{
+    struct quester_quest_definitions *static_state = ctx->static_state;
+    struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
+
+    struct node *node = &static_state->all_nodes[id].node;
+
+    struct quester_tick_result res;
+    if (!forwarded_tick_result)
+    {
+        void *static_node_data = static_state->static_node_data + 
+            quester_find_static_data_offset(ctx, id);
+        void *dynamic_node_data = dynamic_state->tracked_node_data + 
+            quester_find_dynamic_data_offset(ctx, id);
+
+        res = quester_node_implementations[node->type].tick(ctx, id, static_node_data,
+            dynamic_node_data);
+    }
+    else
+    {            
+        res = (struct quester_tick_result) 
+        { 
+            .flags = forwarded_tick_result->flags_to_forward,
+            .out_connection_to_trigger = forwarded_tick_result->out_connections_to_forward_trigger
+        };
+
+        // Cannot forward a forwarding flag in order to avoid funky infinite recursion behaviour
+        assert(!(res.flags & QUESTER_FORWARD_TICK_RESULT_TO_IDS));
+    }
+
+    if (!(res.flags & QUESTER_STILL_RUNNING) || res.out_connection_to_trigger & QUESTER_DEAD_OUTPUT)
+    {
+        for (int i = 0; i < node->out_connection_count; i++)
+        {
+            bool is_non_activating = 
+                node->out_connections[i].type != res.out_connection_to_trigger;
+
+            struct quester_connection connection = 
+            {
+                .out = node->out_connections[i],
+                .in = { QUESTER_ACTIVATION_INPUT, id }
+            };
+            quester_trigger_activators_recurse(ctx, connection, nodes_to_add_count, nodes_to_add,
+                is_non_activating);
+        }
+
+        nodes_to_remove[(*nodes_to_remove_count)++] = id;
+        ctx->dynamic_state->finishing_status[id] = res.out_connection_to_trigger;
+    }
+
+    if (res.flags & QUESTER_FORWARD_TICK_RESULT_TO_IDS)
+        for (int i = 0; i < res.id_count; i++)
+            quester_run_node_recurse(ctx, res.ids[i], &res, nodes_to_remove_count, nodes_to_remove,
+                nodes_to_add_count, nodes_to_add);
 }
 
 void quester_run(struct quester_context *ctx)
@@ -245,8 +191,8 @@ void quester_run(struct quester_context *ctx)
     if (ctx->execution_paused)
         return;
 
-    struct quester_game_definition *static_state = ctx->static_state;
-    struct quester_dynamic_state *dynamic_state = ctx->dynamic_state;
+    struct quester_quest_definitions *static_state = ctx->static_state;
+    struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
 
     int nodes_to_remove_count = 0;
     int nodes_to_remove[1024];
@@ -254,48 +200,8 @@ void quester_run(struct quester_context *ctx)
     int nodes_to_add[1024];
 
     for (int i = 0; i < dynamic_state->tracked_node_count; i++)
-    {
-        int node_id = dynamic_state->tracked_node_ids[i];
-        struct quester_tick_result tick_result;
-
-        bool processing_container = false;
-
-        do 
-        {
-            struct node *node = &static_state->all_nodes[node_id].node;
-
-            void *static_node_data = static_state->static_node_data + 
-                quester_find_static_data_offset(ctx, node_id);
-            void *dynamic_node_data = dynamic_state->tracked_node_data + 
-                quester_find_dynamic_data_offset(ctx, node_id);
-
-            //  TODO: clean up this processing_container mess
-            if (!processing_container)
-                tick_result = quester_node_implementations[node->type].tick(ctx,
-                    node_id, static_node_data, dynamic_node_data);
-
-            if (!processing_container && tick_result.flags & QUESTER_STILL_RUNNING)
-                continue;
-
-            // Editor only
-            dynamic_state->finishing_status[node_id] = tick_result.out_connection_to_trigger;
-            nodes_to_remove[nodes_to_remove_count++] = node_id;
-
-            for (int j = 0; j < node->out_connection_count; j++)
-            {
-                if (node->out_connections[j].type != tick_result.out_connection_to_trigger)
-                    continue;
-
-                // TEMP
-                struct in_connection in = { QUESTER_ACTIVATION_INPUT, node_id };
-                quester_activate_node_recurse(ctx, in, node->out_connections[j].to_id,
-                    &nodes_to_add_count, nodes_to_add);
-            }
-
-            node_id = quester_find_tracked_owning_container(ctx, node_id);
-            processing_container = true;
-        } while (tick_result.flags & QUESTER_FORWARD_TO_CONTAINER_OUTPUT && node_id != -1);
-    }
+        quester_run_node_recurse(ctx, dynamic_state->tracked_node_ids[i], NULL, &nodes_to_remove_count,
+            nodes_to_remove, &nodes_to_add_count, nodes_to_add);
 
     for (int i = 0; i < nodes_to_remove_count; i++)
     {

@@ -1,4 +1,4 @@
-#define QUESTER_STATIC_ASSERT(pred, msg) typedef char msg [(pred) ? 1 : -1]
+#define QUESTER_IDENTITY(x) x
 
 #ifdef QUESTER_IMPLEMENTATION
 enum quester_node_type
@@ -12,11 +12,10 @@ enum quester_node_type
     QUESTER_BUILTIN_IN_BRIDGE_TASK,
     QUESTER_BUILTIN_OUT_BRIDGE_TASK,
 
-    // user-defined tasks
-#ifndef QUESTER_USER_NODE_TYPE_ENUMS
-    #error QUESTER_USER_NODE_TYPE_ENUMS must be defined by the user
+#ifndef QUESTER_USER_NODE_TYPES
+    #error QUESTER_USER_NODE_TYPES must be defined by the user
 #endif
-    QUESTER_USER_NODE_TYPE_ENUMS,
+    QUESTER_USER_NODE_TYPES(QUESTER_IDENTITY),
 
     QUESTER_NODE_TYPE_COUNT
 };
@@ -29,8 +28,8 @@ enum quester_node_type
 
 #include "quester_node.h"
 #include "quester_node_implementation.h"
-#include "quester_game_definition.h"
-#include "quester_dynamic_state.h"
+#include "quester_quest_definitions.h"
+#include "quester_runtime_quest_data.h"
 #include "quester_context.h"
 
 int quester_find_index(struct quester_context *ctx, int node_id);
@@ -65,14 +64,12 @@ const struct quester_node_implementation quester_node_implementations[QUESTER_NO
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_IN_BRIDGE_TASK),
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_OUT_BRIDGE_TASK),
 
-#ifndef QUESTER_USER_NODE_IMPLEMENTATIONS
-    #error QUESTER_USER_NODE_IMPLEMENTATIONS must be defined by the user
-#endif
-    QUESTER_USER_NODE_IMPLEMENTATIONS,
+    QUESTER_USER_NODE_TYPES(QUESTER_NODE_IMPLEMENTATION)
 };
 
 #include "quester_node.c"
-#include "quester_dynamic_state.c"
+#include "quester_quest_definitions.c"
+#include "quester_runtime_quest_data.c"
 #include "quester_builtin_tasks.c"
 #include "quester_context.c"
 
@@ -101,10 +98,10 @@ int quester_max_static_data_size()
 
     if (max == -1)
     {
-        max = quester_node_implementations[0].static_data_size;
+        max = quester_node_implementations[0].static_data_size();
         for (int i = 1; i < QUESTER_NODE_TYPE_COUNT; i++)
-            if (quester_node_implementations[i].static_data_size > max)
-                max = quester_node_implementations[i].static_data_size;
+            if (quester_node_implementations[i].static_data_size() > max)
+                max = quester_node_implementations[i].static_data_size();
     }
 
     return max;
@@ -116,10 +113,10 @@ int quester_max_dynamic_data_size()
 
     if (max == -1)
     {
-        max = quester_node_implementations[0].tracking_data_size;
+        max = quester_node_implementations[0].tracking_data_size();
         for (int i = 1; i < QUESTER_NODE_TYPE_COUNT; i++)
-            if (quester_node_implementations[i].tracking_data_size > max)
-                max = quester_node_implementations[i].tracking_data_size;
+            if (quester_node_implementations[i].tracking_data_size() > max)
+                max = quester_node_implementations[i].tracking_data_size();
     }
 
     return max;
