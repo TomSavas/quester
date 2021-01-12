@@ -5,7 +5,9 @@ void quester_reset_dynamic_state(struct quester_context *ctx)
     memset(ctx->dynamic_state->activation_flags, 0, sizeof(enum quester_activation_flags) * 
             ctx->dynamic_state->capacity);
 
-    ctx->dynamic_state->tracked_node_count = ctx->static_state->initially_tracked_node_count;
+    // All initial nodes are ticking
+    ctx->dynamic_state->tracked_ticking_node_count = ctx->static_state->initially_tracked_node_count;
+    ctx->dynamic_state->tracked_non_ticking_node_count = 0;
     memcpy(ctx->dynamic_state->tracked_node_ids, ctx->static_state->initially_tracked_node_ids,
             sizeof(int) * ctx->static_state->initially_tracked_node_count);
 

@@ -332,12 +332,26 @@ void quester_draw_editor(struct quester_editor_context *ctx)
                     continue;
 
                 bool is_tracked = false;
-                for (int j = 0; j < ctx->q_ctx->dynamic_state->tracked_node_count; j++)
+                for (int j = 0; j < ctx->q_ctx->dynamic_state->tracked_ticking_node_count; j++)
                     if (ctx->q_ctx->dynamic_state->tracked_node_ids[j] == q_node->id)
                     {
                         is_tracked = true;
                         break;
                     }
+                if (!is_tracked)
+                {
+                    for (int j = 0; j < ctx->q_ctx->dynamic_state->tracked_non_ticking_node_count; j++)
+                    {
+                        int idx = ctx->q_ctx->dynamic_state->capacity - 1 - j;
+
+                        if (ctx->q_ctx->dynamic_state->tracked_node_ids[idx] == q_node->id)
+                        {
+                            is_tracked = true;
+                            break;
+                        }
+                    }
+                }
+                
                 struct nk_panel *panel;
 
                 if (is_tracked)

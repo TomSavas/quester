@@ -11,13 +11,19 @@ struct quester_runtime_quest_data
     size_t size;
     int capacity;
 
-    int tracked_node_count;
+    int tracked_ticking_node_count;
+    int tracked_non_ticking_node_count;
+    // The array grows from both ends:
+    //     The ticking nodes are added from left-to-right starting at the start of array
+    //     The non_ticking nodes are added from right-to-left starting at the end of array
     int *tracked_node_ids;
 
     // debug/editor only
     enum quester_out_connection_type *finishing_status;
     // debug/editor only
 
+    // TODO: split nodes into ticking/non_ticking/inactive(sorted by id for binary search) arrays
+    // so that we can iterate through them without any issues
     int node_count;
     enum quester_activation_flags *activation_flags;
     void *tracked_node_data;

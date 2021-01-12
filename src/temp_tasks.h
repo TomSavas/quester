@@ -3,7 +3,7 @@
 
 struct test_task
 {
-    char str[4096];
+    char str[128];
 };
 
 struct quester_activation_result test_task_activator(struct quester_context *ctx, int id, struct test_task *task, void *_,

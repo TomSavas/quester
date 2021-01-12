@@ -1,4 +1,6 @@
 #define QUESTER_IDENTITY(x) x
+#define QUESTER_MIN(a,b) (((a)<(b))?(a):(b))
+#define QUESTER_MAX(a,b) (((a)>(b))?(a):(b))
 
 #ifdef QUESTER_IMPLEMENTATION
 enum quester_node_type
@@ -7,6 +9,7 @@ enum quester_node_type
     QUESTER_BUILTIN_AND_TASK,
     QUESTER_BUILTIN_OR_TASK,
     QUESTER_BUILTIN_PLACEHOLDER_TASK,
+    QUESTER_BUILTIN_ENTRYPOINT_TASK,
 
     // Tasks to support container functionality
     QUESTER_BUILTIN_IN_BRIDGE_TASK,
@@ -61,6 +64,7 @@ const struct quester_node_implementation quester_node_implementations[QUESTER_NO
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_AND_TASK),
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_OR_TASK),
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_PLACEHOLDER_TASK),
+    QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_ENTRYPOINT_TASK),
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_IN_BRIDGE_TASK),
     QUESTER_NODE_IMPLEMENTATION(QUESTER_BUILTIN_OUT_BRIDGE_TASK),
 
@@ -135,7 +139,7 @@ int quester_find_dynamic_data_offset(struct quester_context *ctx, int node_id)
 void quester_fill_with_test_data(struct quester_context *ctx)
 {
     union quester_node *node = quester_add_node(ctx);
-    node->node = (struct node){ QUESTER_BUILTIN_IN_BRIDGE_TASK, 0, "Game entrypoint",  "Game entrypoint" };
+    node->node = (struct node){ QUESTER_BUILTIN_ENTRYPOINT_TASK, 0, "Game entrypoint",  "Game entrypoint" };
     node->editor_node.prop_rect = nk_rect(0, 0, 300, 400);
     node->editor_node.bounds.x = 0;
     node->editor_node.bounds.y = 0;
@@ -149,6 +153,8 @@ void quester_fill_with_test_data(struct quester_context *ctx)
     node->editor_node.bounds.y = 0;
     node->editor_node.bounds.w = 200;
     node->editor_node.bounds.h = 150;
+
+    quester_add_connection(ctx, (struct quester_out_connection){QUESTER_COMPLETION_OUTPUT, 1}, (struct quester_in_connection){QUESTER_ACTIVATION_INPUT, 0});
 
     ctx->static_state->initially_tracked_node_count = 1;
     ctx->static_state->initially_tracked_node_ids[0] = 0;

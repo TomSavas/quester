@@ -7,7 +7,7 @@ struct quester_activation_result quester_container_task_activator(struct quester
     switch(triggering_connection->in.type)
     {
         case QUESTER_ACTIVATION_INPUT:
-            result.flags = QUESTER_ACTIVATE | QUESTER_DISABLE_TICKING | QUESTER_FORWARD_CONNECTIONS_TO_IDS;
+            result.flags = QUESTER_ACTIVATE | QUESTER_FORWARD_CONNECTIONS_TO_IDS;
             result.id_count = static_node_data->in_bridge_node_count;
             memcpy(result.ids, static_node_data->in_bridge_node_ids,
                 sizeof(int) * static_node_data->in_bridge_node_count);
@@ -136,7 +136,7 @@ struct quester_tick_result quester_or_task_tick(struct quester_context *ctx, int
             .out_connection_to_trigger = data->has_succeeded_dependency ? QUESTER_COMPLETION_OUTPUT : QUESTER_FAILURE_OUTPUT,
             .flags_to_forward = 0,
             .out_connections_to_forward_trigger = static_node_data->behaviour - 1,
-            .id_count = node->in_connection_count 
+            .id_count = 0
         };
 
     for (int i = 0; i < node->in_connection_count; i++)
@@ -146,7 +146,7 @@ struct quester_tick_result quester_or_task_tick(struct quester_context *ctx, int
             is_completed = node->in_connections[i].from_id == data->dependencies.completed_dependencies[j];
 
         if (!is_completed)
-            res.ids[i] = node->in_connections[i].from_id;
+            res.ids[res.id_count++] = node->in_connections[i].from_id;
     }
 
     return res;
@@ -354,6 +354,37 @@ void quester_out_bridge_display (struct nk_context *nk_ctx, struct quester_conte
 
 void quester_out_bridge_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
     int id, struct quester_out_bridge_data *static_data, void *data)
+{
+
+}
+
+struct quester_activation_result quester_entrypoint_activator(struct quester_context *ctx, int id,
+    void *static_data, void *dynamic_data, struct quester_connection *triggering_connection)
+{
+    // For now we are adding this as a starting task, so it's already "activated"
+    return (struct quester_activation_result) { 0 };
+}
+
+struct quester_activation_result quester_entrypoint_non_activator(struct quester_context *ctx, int id,
+    void *static_data, void *dynamic_data, struct quester_connection *triggering_connection)
+{
+    return (struct quester_activation_result) { 0 };
+}
+
+struct quester_tick_result quester_entrypoint_tick(struct quester_context *ctx, int id,
+    void *static_data, void *dynamic_data)
+{
+    return (struct quester_tick_result) { 0, QUESTER_COMPLETION_OUTPUT };
+}
+
+void quester_entrypoint_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
+    void *static_data, void *dynamic_data)
+{
+
+}
+
+void quester_entrypoint_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
+    int id, void *static_data, void *data)
 {
 
 }

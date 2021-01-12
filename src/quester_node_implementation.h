@@ -1,9 +1,10 @@
 enum quester_tick_result_flags
 {
-    QUESTER_STILL_RUNNING               = 0x1,
-    QUESTER_FORWARD_TICK_RESULT_TO_IDS  = 0x2,
+    QUESTER_STILL_RUNNING                                 = 0x1,
+    QUESTER_FORWARD_TICK_RESULT_TO_IDS                    = 0x2,
     // TODO: implement ticking disabling from the tick result
-    //QUESTER_DISABLE_TICKING           = 0x4,
+    //QUESTER_DISABLE_TICKING                               = 0x4,
+    //QUESTER_FORWARD_TICK_RESULT_TO_ACTIVE_CONTAINER_NODES = 0x8,
 };
 
 struct quester_tick_result
@@ -31,7 +32,7 @@ struct quester_activation_result
     enum quester_activation_flags flags;
 
     int id_count;
-    int ids[256];
+    int ids[64];
 };
 
 struct quester_context;

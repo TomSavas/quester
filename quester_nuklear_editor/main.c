@@ -102,5 +102,7 @@ int main(void)
     }
     nk_glfw3_shutdown(&glfw);
     glfwTerminate();
+    quester_free(q_ctx);
+
     return 0;
 }

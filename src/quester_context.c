@@ -46,6 +46,8 @@ struct quester_context *quester_init(int capacity)
     ctx->dynamic_state->size = dynamic_state_size;
     ctx->dynamic_state->capacity = capacity;
     ctx->dynamic_state->node_count = 0;
+    ctx->dynamic_state->tracked_ticking_node_count = 0;
+    ctx->dynamic_state->tracked_non_ticking_node_count = 0;
 
     quester_fill_with_test_data(ctx);
 
@@ -57,46 +59,32 @@ void quester_free(struct quester_context *ctx)
     free(ctx);
 }
 
-// TEMP:
-int quester_find_tracked_owning_container(struct quester_context *ctx, int node_id)
+#endif
+
+struct quester_node_changes
 {
-    struct quester_quest_definitions *static_state = ctx->static_state;
-    struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
+    int ticking_nodes_to_add_count;
+    int ticking_nodes_to_add[64];
+    int non_ticking_nodes_to_add_count;
+    int non_ticking_nodes_to_add[64];
 
-    for (int i = 0; i < dynamic_state->tracked_node_count; i++)
-    {
-        int container_id = dynamic_state->tracked_node_ids[i];
-        struct node *container = &static_state->all_nodes[container_id].node;
-
-        if (container->type != QUESTER_BUILTIN_CONTAINER_TASK)
-            continue;
-
-        struct quester_container_task_data *container_data = static_state->static_node_data + 
-            quester_find_static_data_offset(ctx, container_id);
-
-        for (int j = 0; j < container_data->contained_node_count; j++)
-            if (container_data->contained_nodes[j] == node_id)
-                return container_id;
-    }
-
-    return -1;
-}
+    int nodes_to_remove_count;
+    // nodes_to_remove_before_adding?
+    int nodes_to_remove[128];
+};
 
 struct quester_activation_result quester_trigger_activators(struct quester_context *ctx,
     struct quester_connection connection, int id, bool is_non_activating)
 {
-    struct quester_quest_definitions *static_state = ctx->static_state;
     struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
 
-    struct node *node = &static_state->all_nodes[id].node;
-
     enum quester_activation_flags previous_activation_flags = dynamic_state->activation_flags[id];
-    if (!(previous_activation_flags & QUESTER_ALLOW_REPEATED_ACTIVATIONS))
-    {
-        for (int i = 0; i < dynamic_state->tracked_node_count; i++)
-            if (dynamic_state->tracked_node_ids[i] == id)
-                return (struct quester_activation_result) { 0 };
-    }
+    if (previous_activation_flags & QUESTER_ACTIVATE && !(previous_activation_flags & QUESTER_ALLOW_REPEATED_ACTIVATIONS))
+    //if (!(previous_activation_flags & QUESTER_ALLOW_REPEATED_ACTIVATIONS))
+        return (struct quester_activation_result) { 0 };
+
+    struct quester_quest_definitions *static_state = ctx->static_state;
+    struct node *node = &static_state->all_nodes[id].node;
 
     void *static_data = static_state->static_node_data + quester_find_static_data_offset(ctx, id);
     void *dynamic_data = dynamic_state->tracked_node_data + 
@@ -107,30 +95,42 @@ struct quester_activation_result quester_trigger_activators(struct quester_conte
 
     // Editor only, signal that the node hasn't been completed
     dynamic_state->finishing_status[id] = -1;
-    dynamic_state->activation_flags[id] = activator_result.flags;
+    // Once a node is activated it stays activated until it outputs something (controlled by tick function)
+    dynamic_state->activation_flags[id] = activator_result.flags | (previous_activation_flags & QUESTER_ACTIVATE);
 
     return activator_result;
 }
 
 void quester_trigger_activators_recurse(struct quester_context *ctx,
-    struct quester_connection connection,
-    int *nodes_to_add_count, int *nodes_to_add, bool is_non_activating)
+    struct quester_connection connection, struct quester_node_changes *node_changes,
+    bool is_non_activating)
 {
     struct quester_activation_result res = quester_trigger_activators(ctx, connection, connection.out.to_id, is_non_activating);
 
     if (res.flags & QUESTER_ACTIVATE)
-        nodes_to_add[(*nodes_to_add_count)++] = connection.out.to_id;
+    {
+        // Removals are done first, so the net effect is that if the node previously was ticking
+        // and now is non_ticking, we wll remove it form ticking nodes and add it to the 
+        // non_ticking nodes.
+        // If the node was ticking and still is, then removal/add will have no net effect
+        node_changes->nodes_to_remove[node_changes->nodes_to_remove_count++] = connection.out.to_id;
+
+        if (res.flags & QUESTER_DISABLE_TICKING)
+            node_changes->non_ticking_nodes_to_add[node_changes->non_ticking_nodes_to_add_count++] = connection.out.to_id;
+        else
+            node_changes->ticking_nodes_to_add[node_changes->ticking_nodes_to_add_count++] = connection.out.to_id;
+    }
 
     if (res.flags & QUESTER_FORWARD_CONNECTIONS_TO_IDS)
         for (int i = 0; i < res.id_count; i++)
         {
             connection.out.to_id = res.ids[i];
-            quester_trigger_activators_recurse(ctx, connection, nodes_to_add_count, nodes_to_add, is_non_activating);
+            quester_trigger_activators_recurse(ctx, connection, node_changes, is_non_activating);
         }
 }
 
-void quester_run_node_recurse(struct quester_context *ctx, int id, struct quester_tick_result *forwarded_tick_result,
-    int *nodes_to_remove_count, int *nodes_to_remove, int *nodes_to_add_count, int *nodes_to_add)
+void quester_run_node_recurse(struct quester_context *ctx, int id,
+    struct quester_tick_result *forwarded_tick_result, struct quester_node_changes *node_changes)
 {
     struct quester_quest_definitions *static_state = ctx->static_state;
     struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
@@ -138,7 +138,7 @@ void quester_run_node_recurse(struct quester_context *ctx, int id, struct queste
     struct node *node = &static_state->all_nodes[id].node;
 
     struct quester_tick_result res;
-    if (!forwarded_tick_result)
+    if (forwarded_tick_result == NULL)
     {
         void *static_node_data = static_state->static_node_data + 
             quester_find_static_data_offset(ctx, id);
@@ -172,18 +172,17 @@ void quester_run_node_recurse(struct quester_context *ctx, int id, struct queste
                 .out = node->out_connections[i],
                 .in = { QUESTER_ACTIVATION_INPUT, id }
             };
-            quester_trigger_activators_recurse(ctx, connection, nodes_to_add_count, nodes_to_add,
-                is_non_activating);
+            quester_trigger_activators_recurse(ctx, connection, node_changes, is_non_activating);
         }
 
-        nodes_to_remove[(*nodes_to_remove_count)++] = id;
+        node_changes->nodes_to_remove[node_changes->nodes_to_remove_count++] = id;
         ctx->dynamic_state->finishing_status[id] = res.out_connection_to_trigger;
+        ctx->dynamic_state->activation_flags[id] = 0;
     }
 
     if (res.flags & QUESTER_FORWARD_TICK_RESULT_TO_IDS)
         for (int i = 0; i < res.id_count; i++)
-            quester_run_node_recurse(ctx, res.ids[i], &res, nodes_to_remove_count, nodes_to_remove,
-                nodes_to_add_count, nodes_to_add);
+            quester_run_node_recurse(ctx, res.ids[i], &res, node_changes);
 }
 
 void quester_run(struct quester_context *ctx)
@@ -191,32 +190,65 @@ void quester_run(struct quester_context *ctx)
     if (ctx->execution_paused)
         return;
 
-    struct quester_quest_definitions *static_state = ctx->static_state;
     struct quester_runtime_quest_data *dynamic_state = ctx->dynamic_state;
-
-    int nodes_to_remove_count = 0;
-    int nodes_to_remove[1024];
-    int nodes_to_add_count = 0;
-    int nodes_to_add[1024];
-
-    for (int i = 0; i < dynamic_state->tracked_node_count; i++)
-        quester_run_node_recurse(ctx, dynamic_state->tracked_node_ids[i], NULL, &nodes_to_remove_count,
-            nodes_to_remove, &nodes_to_add_count, nodes_to_add);
-
-    for (int i = 0; i < nodes_to_remove_count; i++)
+    struct quester_node_changes node_changes = 
     {
-        for (int j = 0; j < dynamic_state->tracked_node_count; j++)
+        .ticking_nodes_to_add_count = 0,
+        .non_ticking_nodes_to_add_count = 0,
+        .nodes_to_remove_count = 0
+    };
+    for (int i = 0; i < dynamic_state->tracked_ticking_node_count; i++)
+        quester_run_node_recurse(ctx, dynamic_state->tracked_node_ids[i], NULL, &node_changes);
+
+    for (int i = 0; i < node_changes.nodes_to_remove_count; i++)
+    {            
+        bool removed = false;
+        for (int j = 0; j < dynamic_state->tracked_ticking_node_count && !removed; j++)
         {
-            if (nodes_to_remove[i] == dynamic_state->tracked_node_ids[j])
-            {
-                dynamic_state->tracked_node_ids[j] = dynamic_state->tracked_node_ids[--dynamic_state->tracked_node_count];
-                break;
-            }
+            if(dynamic_state->tracked_node_ids[j] != node_changes.nodes_to_remove[i])
+                continue;
+
+            dynamic_state->tracked_node_ids[j] = 
+                dynamic_state->tracked_node_ids[--dynamic_state->tracked_ticking_node_count];
+            removed = true;
+        }
+
+        for (int j = 0; j < dynamic_state->tracked_non_ticking_node_count && !removed; j++)
+        {
+            int non_ticking_id = dynamic_state->capacity - 1 - j;
+            if(dynamic_state->tracked_node_ids[non_ticking_id] != node_changes.nodes_to_remove[i])
+                continue;
+
+            dynamic_state->tracked_node_ids[non_ticking_id] = 
+                dynamic_state->tracked_node_ids[--dynamic_state->tracked_non_ticking_node_count];
+            removed = true;
         }
     }
 
-    for (int i = 0; i < nodes_to_add_count; i++)
-        dynamic_state->tracked_node_ids[dynamic_state->tracked_node_count++] = nodes_to_add[i];
-}
+    // TODO: maybe just faster to swap the fors? Duplicates are unlikely - only occur when we are
+    // switching between ticking to non ticking
+    for (int i = 0; i < dynamic_state->tracked_ticking_node_count; i++)
+    {            
+        // Remove duplicates
+        for (int j = 0; j < node_changes.ticking_nodes_to_add_count; j++)
+            if (dynamic_state->tracked_node_ids[i] == node_changes.ticking_nodes_to_add[j])               
+                node_changes.ticking_nodes_to_add[j--] = node_changes.ticking_nodes_to_add[node_changes.ticking_nodes_to_add_count--];
+    }
+    for (int i = 0; i < node_changes.ticking_nodes_to_add_count; i++)
+        dynamic_state->tracked_node_ids[dynamic_state->tracked_ticking_node_count++] = node_changes.ticking_nodes_to_add[i];
 
-#endif
+    for (int i = 0; i < dynamic_state->tracked_non_ticking_node_count; i++)
+    {                        
+        int idx = dynamic_state->capacity - 1 - i;
+
+        // Remove duplicates
+        for (int j = 0; j < node_changes.non_ticking_nodes_to_add_count; j++)
+            if (dynamic_state->tracked_node_ids[idx] == node_changes.non_ticking_nodes_to_add[j])               
+                node_changes.non_ticking_nodes_to_add[j--] = node_changes.non_ticking_nodes_to_add[node_changes.non_ticking_nodes_to_add_count--];
+    }
+    for (int i = 0; i < node_changes.non_ticking_nodes_to_add_count; i++)
+    {
+        int idx = dynamic_state->capacity - 1 - dynamic_state->tracked_non_ticking_node_count++;
+        dynamic_state->tracked_node_ids[idx] = node_changes.non_ticking_nodes_to_add[i];
+    }
+}
