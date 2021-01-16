@@ -1,4 +1,6 @@
 #define QUESTER_IDENTITY(x) x
+#define QUESTER_STRINGIFY(x) #x
+
 #define QUESTER_MIN(a,b) (((a)<(b))?(a):(b))
 #define QUESTER_MAX(a,b) (((a)>(b))?(a):(b))
 
@@ -40,12 +42,6 @@ int quester_max_static_data_size();
 int quester_max_dynamic_data_size();
 int quester_find_static_data_offset(struct quester_context *ctx, int node_id);
 int quester_find_dynamic_data_offset(struct quester_context *ctx, int node_id);
-void quester_fill_with_test_data(struct quester_context *ctx);
-
-void quester_empty() {}
-struct quester_tick_result quester_empty_tick() { return (struct quester_tick_result) { 0, 0 }; }
-
-void quester_complete_task(struct quester_context *ctx, int id);
 
 #include "quester_builtin_tasks.h"
 #endif // QUESTER_H
@@ -80,17 +76,6 @@ const struct quester_node_implementation quester_node_implementations[QUESTER_NO
 //************************************************************************************************/
 // Utilities 
 //************************************************************************************************/
-void quester_complete_task(struct quester_context *ctx, int id)
-{
-    //struct node *node = &ctx->static_state->all_nodes[quester_find_index(ctx, id)].node;
-    //void *static_node_data = ctx->static_state->static_node_data + 
-    //quester_find_static_data_offset(ctx, id);
-    //void *dynamic_node_data = ctx->dynamic_state->tracked_node_data + 
-    //quester_find_dynamic_data_offset(ctx, id);
-
-    //quester_node_implementations[node->type].on_completion(static_node_data, dynamic_node_data);
-}
-
 int quester_find_index(struct quester_context *ctx, int node_id)
 {
     return node_id;
@@ -136,30 +121,4 @@ int quester_find_dynamic_data_offset(struct quester_context *ctx, int node_id)
     return node_id * quester_max_dynamic_data_size();
 }
 
-void quester_fill_with_test_data(struct quester_context *ctx)
-{
-    union quester_node *node = quester_add_node(ctx);
-    node->node = (struct node){ QUESTER_BUILTIN_ENTRYPOINT_TASK, 0, "Game entrypoint",  "Game entrypoint" };
-    node->editor_node.prop_rect = nk_rect(0, 0, 300, 400);
-    node->editor_node.bounds.x = 0;
-    node->editor_node.bounds.y = 0;
-    node->editor_node.bounds.w = 400;
-    node->editor_node.bounds.h = 150;
-
-    node = quester_add_container_node(ctx, 500, 0);
-    node->node = (struct node){ QUESTER_BUILTIN_CONTAINER_TASK, 1, "C01", "Container 01" };
-    node->editor_node.prop_rect = nk_rect(0, 0, 300, 400);
-    node->editor_node.bounds.x = 500;
-    node->editor_node.bounds.y = 0;
-    node->editor_node.bounds.w = 200;
-    node->editor_node.bounds.h = 150;
-
-    quester_add_connection(ctx, (struct quester_out_connection){QUESTER_COMPLETION_OUTPUT, 1}, (struct quester_in_connection){QUESTER_ACTIVATION_INPUT, 0});
-
-    ctx->static_state->initially_tracked_node_count = 1;
-    ctx->static_state->initially_tracked_node_ids[0] = 0;
-
-    ctx->dynamic_state->node_count = ctx->static_state->node_count;
-    quester_reset_dynamic_state(ctx);
-}
 #endif // QUESTER_IMPLEMENTATION

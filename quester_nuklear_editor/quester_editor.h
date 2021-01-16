@@ -92,12 +92,15 @@ void quester_ed_draw_contextual_menu(struct quester_editor_context *ctx)
                 else
                 {
                     node = quester_add_node(ctx->q_ctx);
-                    if (ctx->currently_displayed_container_node_id != -1)
-                    {
-                        struct quester_container_task_data *container = ctx->q_ctx->static_state->static_node_data + 
-                            quester_find_static_data_offset(ctx->q_ctx, ctx->currently_displayed_container_node_id);
-                        container->contained_nodes[container->contained_node_count++] = node->node.id;
-                    }
+                }
+
+                if (ctx->currently_displayed_container_node_id != -1)
+                {
+                    struct quester_container_task_data *container = ctx->q_ctx->static_state->static_node_data + 
+                        quester_find_static_data_offset(ctx->q_ctx, ctx->currently_displayed_container_node_id);
+                    container->contained_nodes[container->contained_node_count++] = node->node.id;
+
+                    node->node.owning_node_id = ctx->currently_displayed_container_node_id;
                 }
 
                 node->node.type = i;
@@ -123,11 +126,6 @@ void quester_ed_draw_contextual_menu(struct quester_editor_context *ctx)
                     struct timer_task *t = static_node_data;
                     t->start_value = 0;
                     t->end_value = 100;
-                }
-                else if (node->node.type == QUESTER_BUILTIN_OR_TASK)
-                {
-                    struct quester_or_task_data *t = static_node_data;
-                    t->only_once = 0;
                 }
             }
         }
@@ -407,15 +405,20 @@ void quester_draw_editor(struct quester_editor_context *ctx)
 
                 // input circle
                 struct nk_rect circle = nk_rect(x, y + h * 0.8, 10, 10);
-                nk_fill_circle(canvas, circle, nk_rgb(100, 100, 100));
+                if (q_node->type != QUESTER_BUILTIN_ENTRYPOINT_TASK && q_node->type != QUESTER_BUILTIN_IN_BRIDGE_TASK)
+                    nk_fill_circle(canvas, circle, nk_rgb(100, 100, 100));
 
                 // output on failure circle
                 struct nk_rect failure_circle = nk_rect(x + w - 1, y + h, 10, 10);
-                nk_fill_circle(canvas, failure_circle, nk_rgb(255, 100, 100));
-
                 // output on completion circle
                 struct nk_rect completion_circle = nk_rect(x + w - 1, y + h * 0.8, 10, 10);
-                nk_fill_circle(canvas, completion_circle, nk_rgb(100, 255, 100));
+
+                if (q_node->type != QUESTER_BUILTIN_OUT_BRIDGE_TASK)
+                {
+                    if (q_node->type != QUESTER_BUILTIN_IN_BRIDGE_TASK && q_node->type != QUESTER_BUILTIN_ENTRYPOINT_TASK)
+                        nk_fill_circle(canvas, failure_circle, nk_rgb(255, 100, 100));
+                    nk_fill_circle(canvas, completion_circle, nk_rgb(100, 255, 100));
+                }
 
                 if (mouse_over_node_id == -1 && nk_input_is_mouse_hovering_rect(in,
                             nk_layout_space_rect_to_screen(ctx->nk_ctx, node_rect)))

@@ -1,10 +1,13 @@
 enum quester_tick_result_flags
 {
-    QUESTER_STILL_RUNNING                                 = 0x1,
-    QUESTER_FORWARD_TICK_RESULT_TO_IDS                    = 0x2,
-    // TODO: implement ticking disabling from the tick result
-    //QUESTER_DISABLE_TICKING                               = 0x4,
-    //QUESTER_FORWARD_TICK_RESULT_TO_ACTIVE_CONTAINER_NODES = 0x8,
+    QUESTER_STILL_RUNNING                = 0x1,
+    QUESTER_FORWARD_TICK_RESULT_TO_IDS   = 0x2,
+    // NOTE: for the time being, I could not come up with a case where it would be needed to
+    // complete/fail tracked container tasks. That would require introduction of "self_deactivation"
+    // and "refered_deactivation" functions for maximum flexibility. 
+    // Completing/failing tracked container tasks would potentially activate new tasks in the 
+    // container and that would break the linear flow defined by connections
+    QUESTER_KILL_CONTAINER_TRACKED_TASKS = 0x4
 };
 
 struct quester_tick_result
@@ -22,9 +25,8 @@ enum quester_activation_flags
 {
     QUESTER_ACTIVATE                   = 0x1,
     QUESTER_FORWARD_CONNECTIONS_TO_IDS = 0x2,
-    // TODO: finish implementing
     QUESTER_DISABLE_TICKING            = 0x4,
-    QUESTER_ALLOW_REPEATED_ACTIVATIONS = 0x8,
+    QUESTER_ALLOW_REPEATED_ACTIVATIONS = 0x8
 };
 
 struct quester_activation_result
@@ -124,9 +126,10 @@ struct quester_node_implementation
 
 /*
  * Saves you the typing that you'd have to do with QUESTER_IMPLEMENT_NODE, but poses a constraint -
- * your functions have all to be of format <prefix>_<quester_function_suffix>, e.g. if your 
- * task is called some_test_task, then your functions should have names like:
+ * your functions must all to be of format <prefix>_<quester_function_suffix>, e.g. if
+ * a task is called some_test_task, then functions should have names like:
  * some_test_task_activator, some_test_task_non_activator, some_test_task_tick, etc.
+ * Same goes for the structs - they must be named <prefix>_definition and <prefix>_data.
  */
 #define QUESTER_AUTO_IMPLEMENT_NODE(node_type_enum, prefix)                                        \
     QUESTER_IMPLEMENT_NODE(node_type_enum, prefix##_definition, prefix##_data, prefix##_activator, \
@@ -134,7 +137,7 @@ struct quester_node_implementation
 
 #define QUESTER_NODE_IMPLEMENTATION(node_type_enum)                                                \
     {                                                                                              \
-        .name                 = #node_type_enum,                                                   \
+        .name                 = QUESTER_STRINGIFY(node_type_enum),                                 \
         .activator            = node_type_enum##_activator_typecorrect_wrapper,                    \
         .non_activator        = node_type_enum##_non_activator_typecorrect_wrapper,                \
         .tick                 = node_type_enum##_tick_typecorrect_wrapper,                         \

@@ -1,10 +1,18 @@
 struct quester_context;
 
+#define QUESTER_IN_CONNECTION_TYPES(F) \
+    F(QUESTER_ACTIVATION_INPUT)
+
 enum quester_in_connection_type
 {
-    QUESTER_ACTIVATION_INPUT = 0,
+    QUESTER_IN_CONNECTION_TYPES(QUESTER_IDENTITY),
 
     QUESTER_INPUT_TYPE_COUNT
+};
+
+const char *quester_in_connection_type_names[QUESTER_INPUT_TYPE_COUNT] = 
+{
+    QUESTER_IN_CONNECTION_TYPES(QUESTER_STRINGIFY)
 };
 
 struct quester_in_connection
@@ -13,13 +21,21 @@ struct quester_in_connection
     int from_id;
 };
 
+#define QUESTER_OUT_CONNECTION_TYPES(F) \
+    F(QUESTER_COMPLETION_OUTPUT),       \
+    F(QUESTER_FAILURE_OUTPUT),          \
+    F(QUESTER_DEAD_OUTPUT)              
+
 enum quester_out_connection_type
 {
-    QUESTER_COMPLETION_OUTPUT = 0,
-    QUESTER_FAILURE_OUTPUT,
-    QUESTER_DEAD_OUTPUT,
+    QUESTER_OUT_CONNECTION_TYPES(QUESTER_IDENTITY),
 
     QUESTER_OUTPUT_TYPE_COUNT
+};
+
+const char *quester_out_connection_type_names[QUESTER_OUTPUT_TYPE_COUNT] = 
+{
+    QUESTER_OUT_CONNECTION_TYPES(QUESTER_STRINGIFY)
 };
 
 struct quester_out_connection
@@ -33,6 +49,8 @@ struct quester_connection
     struct quester_out_connection out;
     struct quester_in_connection in;
 };
+
+#define QUESTER_ENTRYPOINT_NODE_ID 0
 
 //struct quester_default_node 
 struct node

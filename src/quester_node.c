@@ -13,6 +13,19 @@ union quester_node *quester_add_node(struct quester_context *ctx)
     return node;
 }
 
+//union quester_node *quester_add_node_with_type(struct quester_context *ctx, enum quester_node_type type)
+//{
+//    switch(type)
+//    {
+//        case QUESTER_BUILTIN_CONTAINER_TASK:
+//            return quester_add_container_node(ctx);
+//        case QUESTER_BUILTIN_ENTRYPOINT_TASK:
+//            return &ctx->static_state->all_nodes[QUESTER_ENTRYPOINT_ID];
+//        default:
+//            return quester_add_node(ctx);
+//    }
+//}
+
 union quester_node *quester_add_container_node(struct quester_context *ctx, int x, int y)
 {
     union quester_node *container_node = quester_add_node(ctx);
@@ -68,6 +81,9 @@ union quester_node *quester_add_container_node(struct quester_context *ctx, int 
 
 void quester_remove_node(struct quester_context *ctx, int id)
 {
+    // Cannot remove entrypoint node
+    assert(id != QUESTER_ENTRYPOINT_NODE_ID);
+
     struct node *node = &ctx->static_state->all_nodes[id].node;
 
     if (node->type == QUESTER_BUILTIN_CONTAINER_TASK)

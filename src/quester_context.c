@@ -1,3 +1,5 @@
+#define QUESTER_NOT_FINISHED -1
+
 #define QUESTER_USE_LIBC
 #ifdef QUESTER_USE_LIBC
 #include <stdio.h>
@@ -49,7 +51,25 @@ struct quester_context *quester_init(int capacity)
     ctx->dynamic_state->tracked_ticking_node_count = 0;
     ctx->dynamic_state->tracked_non_ticking_node_count = 0;
 
-    quester_fill_with_test_data(ctx);
+    //for (int i = 0; i < capacity; i++)
+    //    ctx->dynamic_state->finishing_status[i] = QUESTER_NOT_FINISHED;
+
+    union quester_node *node = quester_add_node(ctx);
+    node->node.type = QUESTER_BUILTIN_ENTRYPOINT_TASK;
+    strcpy(node->node.mission_id, "ENTRY");
+    strcpy(node->node.name, "Entrypoint");
+    // TEMP
+    node->editor_node.prop_rect = nk_rect(0, 0, 300, 400);
+    node->editor_node.bounds.x = 0;
+    node->editor_node.bounds.y = 0;
+    node->editor_node.bounds.w = 400;
+    node->editor_node.bounds.h = 150;
+
+    // TODO: remove completely and just start the 0th node
+    ctx->static_state->initially_tracked_node_count = 1;
+    ctx->static_state->initially_tracked_node_ids[0] = 0;
+
+    //quester_fill_with_test_data(ctx);
 
     return ctx;
 }
@@ -68,10 +88,38 @@ struct quester_node_changes
     int non_ticking_nodes_to_add_count;
     int non_ticking_nodes_to_add[64];
 
+    int nodes_to_remove_no_readding_count;
+    int nodes_to_remove_no_readding[128];
+
     int nodes_to_remove_count;
     // nodes_to_remove_before_adding?
     int nodes_to_remove[128];
 };
+
+void quester_kill_container_tracked_nodes(struct quester_context *ctx, int triggering_node_id,
+    int container_id, struct quester_node_changes *node_changes)
+{
+    struct quester_container_task_data *container = 
+        (struct quester_container_task_data*)(ctx->static_state->static_node_data + 
+        quester_find_static_data_offset(ctx, container_id));
+
+    for (int i = 0; i < container->contained_node_count; i++)
+    {
+        int contained_node_id = container->contained_nodes[i];
+
+        if (triggering_node_id != contained_node_id &&
+            ctx->dynamic_state->finishing_status[contained_node_id] == QUESTER_NOT_FINISHED && 
+            ctx->dynamic_state->activation_flags[container->contained_nodes[i]] != 0)
+        {
+            node_changes->nodes_to_remove_no_readding[node_changes->nodes_to_remove_no_readding_count++] = container->contained_nodes[i];
+            ctx->dynamic_state->finishing_status[container->contained_nodes[i]] = QUESTER_DEAD_OUTPUT;
+
+            struct node *contained_node = &ctx->static_state->all_nodes[contained_node_id].node;
+            if (contained_node->type == QUESTER_BUILTIN_CONTAINER_TASK)
+                quester_kill_container_tracked_nodes(ctx, triggering_node_id, contained_node_id, node_changes);
+        }
+    }
+}
 
 struct quester_activation_result quester_trigger_activators(struct quester_context *ctx,
     struct quester_connection connection, int id, bool is_non_activating)
@@ -94,8 +142,9 @@ struct quester_activation_result quester_trigger_activators(struct quester_conte
         : quester_node_implementations[node->type].activator(ctx, id, static_data, dynamic_data, &connection);
 
     // Editor only, signal that the node hasn't been completed
-    dynamic_state->finishing_status[id] = -1;
-    // Once a node is activated it stays activated until it outputs something (controlled by tick function)
+    dynamic_state->finishing_status[id] = QUESTER_NOT_FINISHED;
+    // Once a node is activated it stays activated until it's finished - triggers some connection
+    // via tick function
     dynamic_state->activation_flags[id] = activator_result.flags | (previous_activation_flags & QUESTER_ACTIVATE);
 
     return activator_result;
@@ -160,19 +209,23 @@ void quester_run_node_recurse(struct quester_context *ctx, int id,
         assert(!(res.flags & QUESTER_FORWARD_TICK_RESULT_TO_IDS));
     }
 
-    if (!(res.flags & QUESTER_STILL_RUNNING) || res.out_connection_to_trigger & QUESTER_DEAD_OUTPUT)
+    if (!(res.flags & QUESTER_STILL_RUNNING))
     {
-        for (int i = 0; i < node->out_connection_count; i++)
+        // Dead output doesn't activate connected nodes
+        if (!(res.out_connection_to_trigger & QUESTER_DEAD_OUTPUT))
         {
-            bool is_non_activating = 
-                node->out_connections[i].type != res.out_connection_to_trigger;
-
-            struct quester_connection connection = 
+            for (int i = 0; i < node->out_connection_count; i++)
             {
-                .out = node->out_connections[i],
-                .in = { QUESTER_ACTIVATION_INPUT, id }
-            };
-            quester_trigger_activators_recurse(ctx, connection, node_changes, is_non_activating);
+                bool is_non_activating = 
+                    node->out_connections[i].type != res.out_connection_to_trigger;
+
+                struct quester_connection connection = 
+                {
+                    .out = node->out_connections[i],
+                    .in = { QUESTER_ACTIVATION_INPUT, id }
+                };
+                quester_trigger_activators_recurse(ctx, connection, node_changes, is_non_activating);
+            }
         }
 
         node_changes->nodes_to_remove[node_changes->nodes_to_remove_count++] = id;
@@ -183,6 +236,10 @@ void quester_run_node_recurse(struct quester_context *ctx, int id,
     if (res.flags & QUESTER_FORWARD_TICK_RESULT_TO_IDS)
         for (int i = 0; i < res.id_count; i++)
             quester_run_node_recurse(ctx, res.ids[i], &res, node_changes);
+
+    // TODO: mmmm, could be better, for now only works on the builtin_container task
+    if (res.flags & QUESTER_KILL_CONTAINER_TRACKED_TASKS)
+        quester_kill_container_tracked_nodes(ctx, id, node->owning_node_id, node_changes);
 }
 
 void quester_run(struct quester_context *ctx)
@@ -250,5 +307,30 @@ void quester_run(struct quester_context *ctx)
     {
         int idx = dynamic_state->capacity - 1 - dynamic_state->tracked_non_ticking_node_count++;
         dynamic_state->tracked_node_ids[idx] = node_changes.non_ticking_nodes_to_add[i];
+    }
+
+    for (int i = 0; i < node_changes.nodes_to_remove_no_readding_count; i++)
+    {            
+        bool removed = false;
+        for (int j = 0; j < dynamic_state->tracked_ticking_node_count && !removed; j++)
+        {
+            if(dynamic_state->tracked_node_ids[j] != node_changes.nodes_to_remove_no_readding[i])
+                continue;
+
+            dynamic_state->tracked_node_ids[j] = 
+                dynamic_state->tracked_node_ids[--dynamic_state->tracked_ticking_node_count];
+            removed = true;
+        }
+
+        for (int j = 0; j < dynamic_state->tracked_non_ticking_node_count && !removed; j++)
+        {
+            int non_ticking_id = dynamic_state->capacity - 1 - j;
+            if(dynamic_state->tracked_node_ids[non_ticking_id] != node_changes.nodes_to_remove_no_readding[i])
+                continue;
+
+            dynamic_state->tracked_node_ids[non_ticking_id] = 
+                dynamic_state->tracked_node_ids[--dynamic_state->tracked_non_ticking_node_count];
+            removed = true;
+        }
     }
 }

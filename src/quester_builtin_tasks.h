@@ -1,3 +1,16 @@
+struct quester_immediate_dependency_tracker_completion_settings
+{
+    bool force_out_connections;
+    enum quester_out_connection_type out_connections_to_force;
+};
+
+struct quester_immediate_dependency_tracker
+{
+    int completed_dependency_count;
+    int completed_dependencies[32];
+    bool all_dependencies_completed;
+};
+
 #define QUESTER_MAX_ELEMENTS_IN_CONTAINER_NODE 64
 #define QUESTER_MAX_BRIDGE_NODES 8
 
@@ -24,79 +37,44 @@ struct quester_tick_result quester_container_task_tick(struct quester_context *c
 void quester_container_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
     int id, struct quester_container_task_data *static_node_data, void *_);
 
-struct quester_node_dependency_tracker
-{
-    int completed_dependency_count;
-    int completed_dependencies[32];
-    bool all_dependencies_completed;
-};
-
 struct quester_and_task_dynamic_data
 {
-    // TODO: dynamic maybe? or a smarter solution altogether
-    struct quester_node_dependency_tracker dependencies;
+    struct quester_immediate_dependency_tracker dependencies;
     bool has_failed_dependency;
 };
 
 struct quester_activation_result quester_and_task_activator(struct quester_context *ctx, int id,
-    void *_, struct quester_and_task_dynamic_data *data,
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_and_task_dynamic_data *data,
     struct quester_connection *triggering_connection);
 struct quester_activation_result quester_and_task_non_activator(struct quester_context *ctx, int id,
-    void *_, struct quester_and_task_dynamic_data *data,
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_and_task_dynamic_data *data,
     struct quester_connection *triggering_connection);
-struct quester_tick_result quester_and_task_tick(struct quester_context *ctx, int id, void *_,
+struct quester_tick_result quester_and_task_tick(struct quester_context *ctx, int id,
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings,
     struct quester_and_task_dynamic_data *data);
 void quester_and_task_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-    void *_, struct quester_and_task_dynamic_data *data);
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_and_task_dynamic_data *data);
 void quester_and_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
-    int id, void *_, struct quester_and_task_dynamic_data *data);
-
-enum quester_or_behaviour
-{
-    DO_NOTHING = 0,
-    COMPLETE_INCOMING_INCOMPLETE_TASKS,
-    FAIL_INCOMING_INCOMPLETE_TASKS,
-    KILL_INCOMING_INCOMPLETE_TASKS,
-};
-
-struct quester_or_task_data
-{
-    enum quester_or_behaviour behaviour;
-    bool only_once;
-};
+    int id, struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_and_task_dynamic_data *data);
 
 struct quester_or_task_dynamic_data
 {
-    struct quester_node_dependency_tracker dependencies;
+    struct quester_immediate_dependency_tracker dependencies;
     bool has_succeeded_dependency;
 };
 
 struct quester_activation_result quester_or_task_activator(struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data,
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_or_task_dynamic_data *data,
     struct quester_connection *triggering_connection);
 struct quester_activation_result quester_or_task_non_activator(struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data,
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_or_task_dynamic_data *data,
     struct quester_connection *triggering_connection);
 void quester_or_task_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data);
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_or_task_dynamic_data *data);
 struct quester_tick_result quester_or_task_tick(struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data);
+    struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings, struct quester_or_task_dynamic_data *data);
 void quester_or_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
-    int id, struct quester_or_task_data *static_node_data,
-    struct quester_or_task_dynamic_data *data);
-
-struct quester_activation_result quester_or_task_activator(struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data,
-    struct quester_connection *triggering_connection);
-struct quester_activation_result quester_or_task_non_activator(struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data,
-    struct quester_connection *triggering_connection);
-void quester_or_task_display (struct nk_context *nk_ctx, struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data);
-struct quester_tick_result quester_or_task_tick(struct quester_context *ctx, int id,
-    struct quester_or_task_data *static_node_data, struct quester_or_task_dynamic_data *data);
-void quester_or_task_prop_edit_display (struct nk_context *nk_ctx, struct quester_context *ctx,
-    int id, struct quester_or_task_data *static_node_data,
+    int id, struct quester_immediate_dependency_tracker_completion_settings *tracker_completion_settings,
     struct quester_or_task_dynamic_data *data);
 
 struct quester_placeholder_static_data
@@ -142,10 +120,7 @@ void quester_in_bridge_prop_edit_display (struct nk_context *nk_ctx, struct ques
 
 struct quester_out_bridge_data
 {
-    enum quester_out_connection_type type;
-
-    // TEMP, factor this out 
-    enum quester_or_behaviour behaviour;
+    enum quester_out_connection_type represents_container_output;
 };
 
 struct quester_activation_result quester_out_bridge_activator(struct quester_context *ctx, int id,
@@ -181,10 +156,10 @@ void quester_entrypoint_prop_edit_display (struct nk_context *nk_ctx, struct que
         struct quester_placeholder_static_data, struct quester_placeholder_dynamic_data,           \
         quester_placeholder_activator, quester_placeholder_non_activator, quester_placeholder_tick, quester_placeholder_display,      \
         quester_placeholder_prop_edit_display)                                                     \
-    QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_AND_TASK, void, struct quester_and_task_dynamic_data,   \
+    QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_AND_TASK, struct quester_immediate_dependency_tracker_completion_settings, struct quester_and_task_dynamic_data,   \
         quester_and_task_activator, quester_and_task_non_activator, quester_and_task_tick, quester_and_task_display,               \
         quester_and_task_prop_edit_display)                                                        \
-    QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_OR_TASK, struct quester_or_task_data,                   \
+    QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_OR_TASK, struct quester_immediate_dependency_tracker_completion_settings,                   \
         struct quester_or_task_dynamic_data, quester_or_task_activator, quester_or_task_non_activator, quester_or_task_tick,      \
         quester_or_task_display, quester_or_task_prop_edit_display)                                \
     QUESTER_IMPLEMENT_NODE(QUESTER_BUILTIN_IN_BRIDGE_TASK, enum quester_in_connection_type,        \
